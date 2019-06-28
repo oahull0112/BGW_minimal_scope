@@ -1,0 +1,12 @@
+#!/bin/bash
+#SBATCH --nodes=1                   # Number of nodes
+#SBATCH --ntasks=1                  # number of CPU cores
+#SBATCH --time=0:02:30              
+#SBATCH --account=scatter           # Where to charge NREL Hours
+
+module purge
+module load openmpi/1.10.7/gcc-7.3.0 
+module load gcc/7.3.0
+./submithdf.sh          # srun will infer which mpirun to use
+
+

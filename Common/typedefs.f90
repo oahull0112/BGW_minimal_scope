@@ -148,7 +148,11 @@ module typedefs_m
   type valence_wfns
     integer :: nband  !< This is indeed the number of valence bands
     integer :: ncore_excl 
-    !>This is the number of core states that are not included in the valence in polarizability calculation.   
+    !>This is the number of core states that are not included in the valence in
+    !polarizability calculation.   
+    integer, allocatable :: incl_array_v(:,:) !< describes all included valence bands
+    integer, allocatable :: my_incl_array_v(:,:)
+    !> Describes the included valence bands for the particular mpi task
     integer :: ngv    !< Number of G-vectors
     integer :: idx_kp !< Idx of current kpt in kp/kpq structure
     integer, pointer :: isort(:)
@@ -164,6 +168,11 @@ module typedefs_m
   !> FHJ: conduction WFNs for 1 particular kpt and all bands (!) the processor owns
   type conduction_wfns
     integer :: nband  !< This is actually the number of valence+conduction bands!
+    integer, allocatable :: incl_array
+    !> Describes ALL included bands, both valence and conduction.
+    integer, allocatable :: incl_array_c(:,:) !< describes all included conduction bands
+    integer, allocatable :: my_incl_array_c(:,:)
+    !> Describes the included conduction bands for the particular mpi task
     integer :: ngc    !< Number of G-vectors
     integer :: idx_kp !< Idx of current kpt in kp structure
     integer, pointer :: isort(:)

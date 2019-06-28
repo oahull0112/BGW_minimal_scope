@@ -236,6 +236,16 @@ contains
 #endif
     call distribution()
 
+!#BEGIN_INTERNAL_ONLY
+    ! Need to think about pol%ncrit here, and vwfn%ncore_excl...
+    call make_vc_incl_array(cwfn%incl_array, vwfn%nband, cwfn%nband - vwfn%nband, &
+         vwfn%incl_array_v, cwfn%incl_array_c)
+    call make_my_incl_array(cwfn%incl_array, peinf%doiownv, &
+         peinf%nvownactual, vwfn%my_incl_array_v)
+    call make_my_incl_array(cwfn%incl_array, peinf%doiownc, &
+         peinf%ncownactual, vwfn%my_incl_array_c)
+!#END_INTERNAL_ONLY
+
 !---------------------------------
 ! Determine the available memory
     if(pol%nfreq_group .eq. 1) then
@@ -1476,4 +1486,150 @@ contains
     POP_SUB(setup_parallel_freqs)
     return
   end subroutine setup_parallel_freqs
+
+!================================================================================
+!
+! subroutine make_vc_incl_array   By OAH             Last Modified 06/27/2019
+!
+! A subroutine for band-inclusion functionality
+!
+! Creates valence and conduction inclusion arrays based on an overall inclusion
+! array. 
+! 
+! For example, if the user specifies
+! incl_array = [2, 4;
+!               6, 8]
+! and the last valence band has index 6, then this routine outputs
+! incl_array_v = [2, 4;
+!                 6, 6]
+! incl_array_c = [7, 8]
+!
+!===============================================================================
+  subroutine make_vc_incl_array(incl_array, nvalence, nconduction, &
+             incl_array_v, incl_array_c)
+    
+    integer, intent(in) :: incl_array(:,:)
+    integer, intent(in) :: nvalence
+    integer, intent(in) :: nconduction
+    integer, allocatable, intent(out) :: incl_array_v(:,:)
+    integer, allocatable, intent(out) :: incl_array_c(:,:)
+
+    integer :: vcount
+    integer :: j, k
+    integer :: nrows ! total number of rows in incl_array
+    integer :: crows ! index of start of conduction band
+    
+    vcount = 0
+    j = 0
+    nrows = size(incl_array, 1)
+
+    ! Figure out the global incl_array_v, incl_array_c.
+    ! First do while gets the index (j) of the row that contains both valence
+    ! and conduction bands. The remaining logic splits the array accordingly.
+    do while (vcount .lt. nvalence)
+      j = j + 1
+      vcount = vcount + incl_array(j,2) - incl_array(j, 1) + 1
+    end do ! while
+    crows = nrows - j
+    find_v = incl_array(j, 2)
+    ! If the last band in the range equals nvalence, then we take this row and
+    ! all rows above it and assign to incl_array_v, and the rest to
+    ! incl_array_c. This situation will occur if frontier bands are excluded.
+    if (vcount .eq. nvalence) then
+      allocate(incl_array_c(crows, 2))
+      allocate(incl_array_v(j, 2))
+      incl_array_v = incl_array(1:j, :)
+      incl_array_c = incl_array(j+1:nrows, :)
+    ! Otherwise, the "split" between v and c occurs somewhere inside a range of
+    ! band values. We determine where the split occurs, then assign v, c
+    ! incl_arrays accordingly.
+    else
+      do while (vcount .ne. nvalence)
+        vcount = vcount - 1
+        find_v = find_v - 1
+      end do ! while
+      allocate(incl_array_v(j, 2))
+      allocate(incl_array_c(crows+1, 2))
+      incl_array_v = incl_array(1:j, :)
+      incl_array_c = incl_array(j:nrows, :)
+      incl_array_v(j, 2) = find_v
+      incl_array_c(1, 1) = find_v + 1
+    end if ! vcount .eq. nvalence
+
+  end subroutine make_vc_incl_array
+
+!===============================================================================
+!
+! subroutine make_my_incl_array   By OAH             Last Modified 06/27/2019
+!
+! A subroutine for band-inclusion functionality
+!
+! Creates a local inclusion array based on the bands that the mpi task
+! has been assigned. (Needs to be called for both incl_array_v and incl_array_c
+! 
+!
+!===============================================================================
+  subroutine make_my_incl_array(incl_array, do_i_own, nownactual, &
+             my_incl_array)
+    
+    integer, intent(in) :: incl_array(:,:)
+    logical, intent(in) :: do_i_own(:)
+    integer, intent(in) :: nownactual
+    integer, allocatable, intent(out) :: my_incl_array(:,:)
+
+    integer :: current_last_incl_band
+    integer :: nrows, ncols
+    integer :: irow ! row indexer of my_incl_array
+    integer :: next_band
+    integer :: i_ia ! "(i)ndex of (i)nclusion (a)rray"
+    integer :: i, j, k
+    integer :: init = 0 ! for first case
+
+    nrows = size(incl_array, 1)
+    ncols = 2 ! fixed by definition of inclusion array
+    allocate(my_incl_array(nownactual, ncols)) ! allocate worst case scenario
+    my_incl_array = -1 ! -1 if row is extra
+    init = 0
+    next_band = incl_array(1,1)
+    i_ia = 1
+    irow = 2
+    do i = 1, size(do_i_own)
+      if (do_i_own(i)) then
+        if (init .eq. 0) then
+          ! if I am the first addition to my_incl_array, then just add me with
+          ! no further logic:
+          my_incl_array(1, 1) = next_band
+          my_incl_array(1, 2) = next_band
+          init = init + 1
+        else
+          ! Must include (owned) band i in my_incl_array, but have to figure out
+          ! if i needs its own row, or if it should be added to the end of the
+          ! current row. Grab the right-hand (end) value in the range for the current
+          ! row in my_incl_array and test if the next band is adjacent.
+          current_last_incl_band = my_incl_array(irow - 1, 2)
+          if ( next_band .eq. current_last_incl_band + 1 ) then
+            ! the next band is adjacent to the current, so increment the current
+            ! value 
+            my_incl_array(irow - 1, 2) = my_incl_array(irow - 1, 2) + 1
+          else
+            ! if not adjacent to the current band, then the next band needs to
+            ! become the starting value of a new row in my_incl_array.
+            irow = irow + 1
+            my_incl_array(irow - 1, 1) = next_band
+            my_incl_array(irow - 1, 2) = next_band
+          end if
+        end if ! init .eq. 0
+      end if ! do_i_own(i)
+      if ( i .ne. size(do_i_own)) then
+        if (incl_array(i_ia, 2) .gt. next_band) then
+          next_band = next_band + 1
+        else
+          next_band = incl_array(i_ia + 1, 1)
+          i_ia = i_ia + 1
+        end if ! incl_array
+      end if ! i .ne. size(do_i_own)
+    end do ! end loop over do_i_own
+
+  end subroutine make_my_incl_array
+
 end module input_m
