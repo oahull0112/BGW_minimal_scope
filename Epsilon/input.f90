@@ -237,13 +237,13 @@ contains
     call distribution()
 
 !#BEGIN_INTERNAL_ONLY
-    ! Need to think about pol%ncrit here, and vwfn%ncore_excl...
-    call make_vc_incl_array(cwfn%incl_array, vwfn%nband, cwfn%nband - vwfn%nband, &
+! The make_vc_incl_array call is giving a seg fault.
+    call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, cwfn%nband - vwfn%nband, &
          vwfn%incl_array_v, cwfn%incl_array_c)
-    call make_my_incl_array(cwfn%incl_array, peinf%doiownv, &
-         peinf%nvownactual, vwfn%my_incl_array_v)
-    call make_my_incl_array(cwfn%incl_array, peinf%doiownc, &
-         peinf%ncownactual, vwfn%my_incl_array_c)
+!    call make_my_incl_array(cwfn%incl_array, peinf%doiownv, &
+!         peinf%nvownactual, vwfn%my_incl_array_v)
+!    call make_my_incl_array(cwfn%incl_array, peinf%doiownc, &
+!         peinf%ncownactual, cwfn%my_incl_array_c)
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -1518,6 +1518,7 @@ contains
     integer :: j, k
     integer :: nrows ! total number of rows in incl_array
     integer :: crows ! index of start of conduction band
+    integer :: find_v
     
     vcount = 0
     j = 0
@@ -1572,10 +1573,10 @@ contains
   subroutine make_my_incl_array(incl_array, do_i_own, nownactual, &
              my_incl_array)
     
-    integer, intent(in) :: incl_array(:,:)
-    logical, intent(in) :: do_i_own(:)
-    integer, intent(in) :: nownactual
-    integer, allocatable, intent(out) :: my_incl_array(:,:)
+    integer, intent(in) :: incl_array(:,:) ! incl_array_v or incl_array_c
+    logical, intent(in) :: do_i_own(:) ! doiownv or doiownc
+    integer, intent(in) :: nownactual ! nvownactual or ncownactual
+    integer, allocatable, intent(out) :: my_incl_array(:,:) ! my_incl_array_v/c
 
     integer :: current_last_incl_band
     integer :: nrows, ncols

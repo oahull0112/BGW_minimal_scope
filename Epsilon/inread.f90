@@ -34,7 +34,8 @@ subroutine inread(pol,vwfn,cwfn)
   
   character*256 :: blockword,keyword,line,errmsg
   integer :: ii,itestq,jj,nqpt_read,iostat
-  
+  integer ::j,nband_ranges,incl_start(MAX_BANDS),incl_end(MAX_BANDS)
+  ! OAH: REMOVE j when done testing
   real(DP) :: div,qpt_read(3,MAX_KPTS),qw_read(MAX_KPTS)
   integer :: qflags(MAX_KPTS)
   integer :: band_occ(MAX_BANDS), ifreqCounter
@@ -201,6 +202,9 @@ subroutine inread(pol,vwfn,cwfn)
             endif
             qpt_read(1:3,ii)=qpt_read(1:3,ii)/div
             qflags(ii) = itestq
+          elseif(trim(blockword).eq.'band_ranges') then
+            nband_ranges=ii
+            read(line,*,iostat=iostat) incl_start(ii), incl_end(ii)
           else
             write(errmsg,'(3a)') 'Unexpected blockword ', trim(blockword), ' was found in epsilon.inp.'
             call die(errmsg, only_root_writes = .true.)
@@ -493,6 +497,18 @@ subroutine inread(pol,vwfn,cwfn)
     endif
     write(6,'()')
   endif
+!#END_INTERNAL_ONLY
+
+!#BEGIN_INTERNAL_ONLY
+  SAFE_ALLOCATE(cwfn%incl_array, (nband_ranges, 2))
+  cwfn%incl_array(:,1) = incl_start(1:nband_ranges)
+  cwfn%incl_array(:,2) = incl_end(1:nband_ranges)
+  if (peinf%inode.eq.0) then
+    write(*,*) "inclusion array: "
+    do i = 1, nband_ranges
+      write(*,*) (cwfn%incl_array(i,j), j = 1,2)
+    end do
+  end if
 !#END_INTERNAL_ONLY
 
   if ((pol%freq_dep .eq. 2) .and. abs(pol%dDeltaFreq) .gt. TOL_Zero) then
