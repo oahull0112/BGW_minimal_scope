@@ -86,6 +86,9 @@ contains
 
     logical :: skip_checkbz
 
+    integer :: oh_i, oh_j
+    ! OAH: remove when done testing
+
     PUSH_SUB(input)
 
 !-------------------------------
@@ -238,8 +241,23 @@ contains
 
 !#BEGIN_INTERNAL_ONLY
 ! The make_vc_incl_array call is giving a seg fault.
-    call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, cwfn%nband - vwfn%nband, &
+    call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband+pol%ncrit, &
+      cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl)
+    call make_vc_incl_array(cwfn%incl_array, vwfn%nv_incl, cwfn%nc_incl, &
          vwfn%incl_array_v, cwfn%incl_array_c)
+    if (peinf%inode.eq.0) then
+      write(*,*) "partially occupied bands:", pol%ncrit
+      write(*,*) "valence bands:", vwfn%nband
+      write(*,*) "conduction bands:", cwfn%nband - vwfn%nband
+      write(*,*) "valence inclusion array:"
+      do oh_i = 1, size(vwfn%incl_array_v, 1)
+        write(*,*) (vwfn%incl_array_v(oh_i, oh_j), oh_j=1,2)
+      end do
+      write(*,*) "conduction inclusion array:"
+      do oh_i = 1, size(cwfn%incl_array_c, 1)
+        write(*,*) (cwfn%incl_array_c(oh_i, oh_j), oh_j=1,2)
+      end do
+    end if
 !    call make_my_incl_array(cwfn%incl_array, peinf%doiownv, &
 !         peinf%nvownactual, vwfn%my_incl_array_v)
 !    call make_my_incl_array(cwfn%incl_array, peinf%doiownc, &
@@ -1509,13 +1527,13 @@ contains
              incl_array_v, incl_array_c)
     
     integer, intent(in) :: incl_array(:,:)
-    integer, intent(in) :: nvalence
-    integer, intent(in) :: nconduction
+    integer, intent(in) :: nvalence ! nv_incl
+    integer, intent(in) :: nconduction ! nc_incl
     integer, allocatable, intent(out) :: incl_array_v(:,:)
     integer, allocatable, intent(out) :: incl_array_c(:,:)
 
     integer :: vcount
-    integer :: j, k
+    integer :: i, j, k
     integer :: nrows ! total number of rows in incl_array
     integer :: crows ! index of start of conduction band
     integer :: find_v
@@ -1557,7 +1575,87 @@ contains
       incl_array_c(1, 1) = find_v + 1
     end if ! vcount .eq. nvalence
 
+    if (peinf%inode.eq.0) then
+      write(*,*) "valence inclusion array:"
+      do i = 1, j
+        write(*,*)( incl_array_v(i, k), k= 1,2)
+      end do
+      write(*,*) "conduction inclusion array:"
+      do i = 1,crows+1
+        write(*,*)(incl_array_c(i, k), k=1,2)
+      end do
+    end if
+
   end subroutine make_vc_incl_array
+
+  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, nv_incl, nc_incl)
+
+    integer, intent(in) :: incl_array(:,:)
+    integer, intent(in) :: ntot
+    integer, intent(in) :: nv_tot
+    integer, intent(in) :: nc_tot
+    integer, intent(out) :: nv_incl 
+    integer, intent(out) :: nc_incl 
+
+    integer :: i, ir
+    integer :: last_v, first_c, search_v, search_c
+    integer :: n_incl_rows
+
+
+    if (peinf%inode .eq. 0) then
+
+    n_incl_rows = size(incl_array, 1)
+    last_v = nv_tot
+    first_c = ntot - nc_tot + 1
+    search_v = 0
+    search_c = 0
+
+    do i = 1, n_incl_rows
+      if (incl_array(i, 2) .le. last_v .and. incl_array(i, 2) .le. last_v) then
+        nv_incl = nv_incl + incl_array(i, 2) - incl_array(i, 1) + 1
+       else if (incl_array(i, 2) .ge. last_v .and. incl_array(i, 2) .le. last_v) then
+      else
+        search_v = incl_array(i,1)
+        do while (search_v .le. nv_tot)
+          nv_incl = nv_incl + 1
+          search_v = search_v + 1
+        end do ! while
+      end if
+    end do
+
+    do i = 1, n_incl_rows
+      ir = n_incl_rows + 1 - i ! index-reverse
+      if (incl_array(ir, 1) .ge. first_c .and. incl_array(ir, 2) .ge. first_c) then
+        nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
+      else if (incl_array(ir, 1) .le. first_c .and. &
+        incl_array(ir, 2) .ge. first_c) then
+        search_c = incl_array(ir, 1) 
+        nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
+        do while (search_c .lt. first_c)
+          search_c = search_c + 1
+          nc_incl = nc_incl - 1
+        end do
+        else
+          cycle
+      end if
+      
+      !ntot_incl = incl_array(i,2) - incl_array(i, 1) + 1
+    end do
+
+    write(*,*) "nv_incl = ", nv_incl
+    write(*,*) "nc_incl = ", nc_incl
+
+  end if! inode .eq. 0
+  end subroutine determine_n_incl
+
+
+
+
+
+
+
+
+
 
 !===============================================================================
 !
