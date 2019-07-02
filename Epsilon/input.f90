@@ -237,14 +237,34 @@ contains
     call MPI_Bcast(vwfn%nband, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
     call MPI_Bcast(pol%ncrit, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
 #endif
+    call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
+      cwfn%nband, pol%ncrit)
+    if (peinf%inode.eq.0) then
+      write(*,*) "vwfn%nband + pol%ncrit = ", vwfn%nband+pol%ncrit
+      write(*,*) "cwfn%nband - vwfn%nband = ", cwfn%nband-vwfn%nband
+      write(*,*) "cwfn%nband = ", cwfn%nband
+    end if
     call distribution()
 
+    if (peinf%inode.eq.0) then
+      write(*,*) "does it own v:"
+      do oh_i = 1, vwfn%nband+pol%ncrit
+        write(*,*) (peinf%does_it_ownv(oh_i, oh_j), oh_j = 1,peinf%npes)
+      end do
+      write(*,*) "does it ownc:"
+      do oh_i = 1, cwfn%nband-vwfn%nband
+        write(*,*) (peinf%does_it_ownc(oh_i, oh_j), oh_j = 1,peinf%npes)
+      end do
+      write(*,*) "do I own v:", peinf%doiownv
+      write(*,*) "do I own c:", peinf%doiownc
+    end if
+
 !#BEGIN_INTERNAL_ONLY
-! The make_vc_incl_array call is giving a seg fault.
-    call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband+pol%ncrit, &
-      cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl)
-    call make_vc_incl_array(cwfn%incl_array, vwfn%nv_incl, cwfn%nc_incl, &
-         vwfn%incl_array_v, cwfn%incl_array_c)
+   ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband+pol%ncrit, &
+   !   cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl, pol%ncrit_incl)
+    
+    call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, &
+        cwfn%nband-vwfn%nband, vwfn%incl_array_v, cwfn%incl_array_c)
     if (peinf%inode.eq.0) then
       write(*,*) "partially occupied bands:", pol%ncrit
       write(*,*) "valence bands:", vwfn%nband
@@ -258,10 +278,20 @@ contains
         write(*,*) (cwfn%incl_array_c(oh_i, oh_j), oh_j=1,2)
       end do
     end if
-!    call make_my_incl_array(cwfn%incl_array, peinf%doiownv, &
-!         peinf%nvownactual, vwfn%my_incl_array_v)
-!    call make_my_incl_array(cwfn%incl_array, peinf%doiownc, &
-!         peinf%ncownactual, cwfn%my_incl_array_c)
+    call make_my_incl_array(vwfn%incl_array_v, peinf%doiownv, &
+         peinf%nvownactual, vwfn%my_incl_array_v)
+    call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
+         peinf%ncownactual, cwfn%my_incl_array_c)
+    if (peinf%inode.eq.0) then
+      write(*,*) "my valence inclusion array:"
+      do oh_i = 1, size(vwfn%my_incl_array_v,1)
+        write(*,*) (vwfn%my_incl_array_v(oh_i, oh_j), oh_j=1,2)
+      end do
+      write(*,*) "my conduction inclusion array:"
+      do oh_i = 1, size(cwfn%my_incl_array_c,1)
+        write(*,*) (cwfn%my_incl_array_c(oh_i, oh_j), oh_j=1,2)
+      end do
+    end if
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -1575,40 +1605,48 @@ contains
       incl_array_c(1, 1) = find_v + 1
     end if ! vcount .eq. nvalence
 
-    if (peinf%inode.eq.0) then
-      write(*,*) "valence inclusion array:"
-      do i = 1, j
-        write(*,*)( incl_array_v(i, k), k= 1,2)
-      end do
-      write(*,*) "conduction inclusion array:"
-      do i = 1,crows+1
-        write(*,*)(incl_array_c(i, k), k=1,2)
-      end do
-    end if
-
   end subroutine make_vc_incl_array
 
-  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, nv_incl, nc_incl)
+!  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, nv_incl, nc_incl, ncrit_incl)
+  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, ncrit)
 
     integer, intent(in) :: incl_array(:,:)
-    integer, intent(in) :: ntot
-    integer, intent(in) :: nv_tot
-    integer, intent(in) :: nc_tot
-    integer, intent(out) :: nv_incl 
-    integer, intent(out) :: nc_incl 
+    integer, intent(inout) :: ntot ! total number of all bands
+    integer, intent(inout) :: nv_tot ! total number of all valence bands
+    integer, intent(in) :: nc_tot ! total number of all conduction bands
+    integer, intent(inout) :: ncrit
+
+    integer :: temp_nv_tot, temp_nc_tot, temp_ntot
+    integer :: nv_incl ! number of valence included
+    integer :: nc_incl  ! number of conduction included
+    integer :: ncrit_incl
+    ! Note that nv_incl and nc_incl both include ncrit
 
     integer :: i, ir
     integer :: last_v, first_c, search_v, search_c
     integer :: n_incl_rows
 
+    temp_nv_tot = nv_tot + ncrit
+   ! temp_nc_tot = nc_tot + ncrit
+    temp_nc_tot = nc_tot - nv_tot
+    temp_ntot = ntot
 
-    if (peinf%inode .eq. 0) then
-
+    ! need to fix these temp variables so that they exactly match what was
+    ! originally inputted into the routine (Which is commented out in the main
+    ! section of input.f90, so go look at it.
     n_incl_rows = size(incl_array, 1)
-    last_v = nv_tot
-    first_c = ntot - nc_tot + 1
+    last_v = temp_nv_tot
+    first_c = temp_ntot - temp_nc_tot + 1
     search_v = 0
     search_c = 0
+    nc_incl = 0
+    nv_incl = 0
+
+    if (first_c .le. last_v) then
+      ncrit_incl = last_v - first_c + 1
+    else
+      ncrit_incl = 0
+    end if
 
     do i = 1, n_incl_rows
       if (incl_array(i, 2) .le. last_v .and. incl_array(i, 2) .le. last_v) then
@@ -1616,7 +1654,7 @@ contains
        else if (incl_array(i, 2) .ge. last_v .and. incl_array(i, 2) .le. last_v) then
       else
         search_v = incl_array(i,1)
-        do while (search_v .le. nv_tot)
+        do while (search_v .le. temp_nv_tot)
           nv_incl = nv_incl + 1
           search_v = search_v + 1
         end do ! while
@@ -1639,23 +1677,19 @@ contains
           cycle
       end if
       
-      !ntot_incl = incl_array(i,2) - incl_array(i, 1) + 1
     end do
 
-    write(*,*) "nv_incl = ", nv_incl
-    write(*,*) "nc_incl = ", nc_incl
+    ntot = nv_incl + nc_incl - ncrit_incl
+    ncrit = ncrit_incl
+    !nc_tot = nc_incl
+    nv_tot = nv_incl
+    if (peinf%inode.eq.0) then
+      write(*,*) "nv_incl = ", nv_incl
+      write(*,*) "nc_incl = ", nc_incl
+      write(*,*) "ntot = ", ntot
+    end if
 
-  end if! inode .eq. 0
   end subroutine determine_n_incl
-
-
-
-
-
-
-
-
-
 
 !===============================================================================
 !
