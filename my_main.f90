@@ -92,14 +92,13 @@ program my_main
   incl_array(3,2) = 9
   incl_array(4,1) = 12
   incl_array(4,2) = 14
-!  rows included: 2, 4, 5, 6, 8, 9, 12, 13, 14
-! rows_v incl: 2, 4, 5, 6, 8
-! rows_c incl: 9, 12, 13, 14
-
   nvalence = 5
   nconduction = 4
   nbands = nvalence + nconduction
   nbands_to_write = incl_array(4,2) + 1
+  ! rows included: 2, 4, 5, 6, 8, 9, 12, 13, 14
+  ! rows_v incl: 2, 4, 5, 6, 8
+  ! rows_c incl: 9, 12, 13, 14
 
   ! Make the dummy datafile to read
   call make_file()
