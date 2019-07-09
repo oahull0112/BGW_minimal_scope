@@ -66,6 +66,7 @@ contains
     character :: fncor*32
     character :: tmpstr1*16,tmpstr2*16,tmpstr3*16,tmpstr*120
     integer :: ii,ig,jj,itran,ib
+    integer :: i_oh, j_oh
     integer :: error
     integer :: nrq,nrqmax,iq,ic,npools,mypool,mypoolrank
     integer :: iv,nrkq,myipe,ipool
@@ -237,61 +238,23 @@ contains
     call MPI_Bcast(vwfn%nband, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
     call MPI_Bcast(pol%ncrit, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
 #endif
+!#BEGIN_INTERNAL_ONLY
     call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
-      cwfn%nband, pol%ncrit)
-    if (peinf%inode.eq.0) then
-      write(*,*) "vwfn%nband + pol%ncrit = ", vwfn%nband+pol%ncrit
-      write(*,*) "cwfn%nband - vwfn%nband = ", cwfn%nband-vwfn%nband
-      write(*,*) "cwfn%nband = ", cwfn%nband
-    end if
+      pol%ncrit, cwfn%n_excl, vwfn%nv_excl)
+!#END_INTERNAL_ONLY
     call distribution()
 
-    if (peinf%inode.eq.0) then
-      write(*,*) "does it own v:"
-      do oh_i = 1, vwfn%nband+pol%ncrit
-        write(*,*) (peinf%does_it_ownv(oh_i, oh_j), oh_j = 1,peinf%npes)
-      end do
-      write(*,*) "does it ownc:"
-      do oh_i = 1, cwfn%nband-vwfn%nband
-        write(*,*) (peinf%does_it_ownc(oh_i, oh_j), oh_j = 1,peinf%npes)
-      end do
-      write(*,*) "do I own v:", peinf%doiownv
-      write(*,*) "do I own c:", peinf%doiownc
-    end if
-
 !#BEGIN_INTERNAL_ONLY
+
    ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband+pol%ncrit, &
    !   cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl, pol%ncrit_incl)
     
     call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, &
         cwfn%nband-vwfn%nband, vwfn%incl_array_v, cwfn%incl_array_c)
-    if (peinf%inode.eq.0) then
-      write(*,*) "partially occupied bands:", pol%ncrit
-      write(*,*) "valence bands:", vwfn%nband
-      write(*,*) "conduction bands:", cwfn%nband - vwfn%nband
-      write(*,*) "valence inclusion array:"
-      do oh_i = 1, size(vwfn%incl_array_v, 1)
-        write(*,*) (vwfn%incl_array_v(oh_i, oh_j), oh_j=1,2)
-      end do
-      write(*,*) "conduction inclusion array:"
-      do oh_i = 1, size(cwfn%incl_array_c, 1)
-        write(*,*) (cwfn%incl_array_c(oh_i, oh_j), oh_j=1,2)
-      end do
-    end if
     call make_my_incl_array(vwfn%incl_array_v, peinf%doiownv, &
          peinf%nvownactual, vwfn%my_incl_array_v)
     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
          peinf%ncownactual, cwfn%my_incl_array_c)
-    if (peinf%inode.eq.0) then
-      write(*,*) "my valence inclusion array:"
-      do oh_i = 1, size(vwfn%my_incl_array_v,1)
-        write(*,*) (vwfn%my_incl_array_v(oh_i, oh_j), oh_j=1,2)
-      end do
-      write(*,*) "my conduction inclusion array:"
-      do oh_i = 1, size(cwfn%my_incl_array_c,1)
-        write(*,*) (cwfn%my_incl_array_c(oh_i, oh_j), oh_j=1,2)
-      end do
-    end if
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -670,9 +633,13 @@ contains
 ! If quasi-particle corrections were requested, read the corrected
 ! quasiparticle energies from file (in eV)
 
+! The below will need to be modified to reindex for the inclusion case...
+! It is checking the very last band, so need to reindex somehow to get the
+! proper last band
     if(peinf%inode == 0) then
-      if(any(abs(kp%el(cwfn%nband+vwfn%ncore_excl, 1:kp%nrk, 1:kp%nspin) - &
-                 kp%el(cwfn%nband + 1 +vwfn%ncore_excl, 1:kp%nrk, 1:kp%nspin)) .lt. TOL_Degeneracy)) then
+      if(any(abs(kp%el(cwfn%nband+vwfn%ncore_excl+cwfn%n_excl-vwfn%ncore_excl, 1:kp%nrk, &
+      1:kp%nspin) - kp%el(cwfn%nband+cwfn%n_excl-vwfn%ncore_excl+ 1 +vwfn%ncore_excl, &
+      1:kp%nrk, 1:kp%nspin)) .lt. TOL_Degeneracy)) then
         if(pol%degeneracy_check_override) then
           write(0,'(a)') &
             "WARNING: Selected number of bands breaks degenerate subspace. " // &
@@ -686,7 +653,9 @@ contains
         endif
       endif
 
-      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl + pol%ncrit)) then
+      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
+        .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl) + &
+        pol%ncrit)) then
         write(0,'(a,i6,a,i6,a)') 'epsilon.inp says there are ', vwfn%nband, ' fully occupied bands and ', &
           pol%ncrit, ' partially occupied.'
         write(0,'(a,2i6)') 'This is inconsistent with highest bands in WFN file; min, max = ', minval(kp%ifmax), maxval(kp%ifmax)
@@ -730,6 +699,29 @@ contains
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
         call read_hdf5_wavefunctions(kp, gvec, pol, cwfn, vwfn, intwfnv, intwfnc)
+        if (peinf%inode.eq.35) then
+          write(*,*) "information for mpi task: ", peinf%inode
+          write(*,*) "do i own v:"
+          write(*,*) peinf%doiownv
+          write(*,*) "my valence inclusion array: "
+          do i_oh = 1, size(vwfn%my_incl_array_v,1)
+            write(*,*) (vwfn%my_incl_array_v(i_oh, j_oh), j_oh=1,2)
+          end do
+          write(*,*) "valence first band coefs:"
+          do i_oh = 1, size(intwfnv%cg, 2)
+            write(*,*) intwfnv%cg(1, i_oh, 1)
+          end do
+          write(*,*) "do i own c:"
+          write(*,*) peinf%doiownc
+          write(*,*) "my conduction inclusion array: "
+          do i_oh = 1, size(cwfn%my_incl_array_c,1)
+            write(*,*) (cwfn%my_incl_array_c(i_oh, j_oh), j_oh=1,2)
+          end do
+          write(*,*) "conduction first band coefs:"
+          do i_oh = 1, size(intwfnc%cg, 2)
+            write(*,*) intwfnc%cg(1, i_oh, 1)
+          end do
+        end if
 #endif
 !#END_INTERNAL_ONLY
       else
@@ -1129,6 +1121,7 @@ contains
     integer :: error
     integer :: ngktot
     integer :: istart, ib_first
+    integer :: i_oh
 
     PUSH_SUB(read_hdf5_wavefunctions)
 
@@ -1186,8 +1179,18 @@ contains
     ib_first = 0
     if (peinf%nvownactual>0) ib_first = peinf%invindexv(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%nvownactual))
-    call read_hdf5_bands_block(file_id, kp, peinf%nvownmax, peinf%nvownactual, &
+    call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
       peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
+    if (peinf%inode.eq.0) then
+      write(*,*) "valence first band coefs:"
+      do i_oh = 1, size(wfns, 3)
+        write(*,*) wfns(1,1,i_oh)
+      end do
+    !  write(*,*) "conduction first band coefs:"
+    !  do i_oh = 1, size(intwfnc%cg, 2)
+    !    write(*,*) intwfnc%cg(1, i_oh, 1)
+    !  end do
+    end if
 
 ! DVF : here we flip from hdf5 wfn ordering of indices to the `traditional` BGW ordering of indices, with
 ! respect to spin. The traditional BGW ordering should change soon to reflect the newer, better hdf5 setup
@@ -1227,8 +1230,9 @@ contains
     ib_first = 0
     if (peinf%ncownactual>0) ib_first = peinf%invindexc(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%ncownactual))
-    call read_hdf5_bands_block(file_id, kp, peinf%ncownmax, peinf%ncownactual, &
+    call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
       peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
+
 
     call logit('Checking norms')
     ! write to conduction file
@@ -1607,14 +1611,24 @@ contains
 
   end subroutine make_vc_incl_array
 
-!  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, nv_incl, nc_incl, ncrit_incl)
-  subroutine determine_n_incl(incl_array, ntot, nv_tot, nc_tot, ncrit)
+!===============================================================================
+!
+! subroutine determine_n_incl   By OAH             Last Modified 07/02/2019
+!
+! A subroutine for band-inclusion functionality
+!
+! Determines the number of valence and conduction bands included in the
+! calculation, then rewrites cwfn%nband, vwfn%nband, and pol%ncrit accordingly.
+!
+!===============================================================================
+  subroutine determine_n_incl(incl_array, ntot, nv_tot, ncrit, n_excl, nv_excl)
 
     integer, intent(in) :: incl_array(:,:)
-    integer, intent(inout) :: ntot ! total number of all bands
-    integer, intent(inout) :: nv_tot ! total number of all valence bands
-    integer, intent(in) :: nc_tot ! total number of all conduction bands
+    integer, intent(inout) :: ntot ! all bands, cwfn%nband
+    integer, intent(inout) :: nv_tot ! all valence bands, vwfn%nband
     integer, intent(inout) :: ncrit
+    integer, intent(out) :: n_excl ! total number of excluded bands
+    integer, intent(out) :: nv_excl ! number of excluded valence bands
 
     integer :: temp_nv_tot, temp_nc_tot, temp_ntot
     integer :: nv_incl ! number of valence included
@@ -1628,7 +1642,7 @@ contains
 
     temp_nv_tot = nv_tot + ncrit
    ! temp_nc_tot = nc_tot + ncrit
-    temp_nc_tot = nc_tot - nv_tot
+    temp_nc_tot = ntot - nv_tot
     temp_ntot = ntot
 
     ! need to fix these temp variables so that they exactly match what was
@@ -1679,14 +1693,24 @@ contains
       
     end do
 
+    ! OAH: need a test case that has partially occupied bands
+    ! to ensure that this indexing is done correctly for that case
+    ! Also, need to set in inread.f90 that the default n_excl and
+    ! the default nv_excl are 0 (will need to chagne intent out to
+    ! intent inout for these when the time comes)
+    n_excl = ntot - nv_incl - nc_incl - ncrit_incl
+    nv_excl = nv_tot - nv_incl
     ntot = nv_incl + nc_incl - ncrit_incl
     ncrit = ncrit_incl
     !nc_tot = nc_incl
     nv_tot = nv_incl
+    
     if (peinf%inode.eq.0) then
       write(*,*) "nv_incl = ", nv_incl
       write(*,*) "nc_incl = ", nc_incl
       write(*,*) "ntot = ", ntot
+      write(*,*) "n_excl = ", n_excl
+      write(*,*) "nv_excl = ", nv_excl
     end if
 
   end subroutine determine_n_incl

@@ -151,6 +151,7 @@ module typedefs_m
     !>This is the number of core states that are not included in the valence in
     !polarizability calculation.   
     integer, allocatable :: incl_array_v(:,:) !< describes all included valence bands
+    integer :: nv_excl !< number of excluded valence bands
     integer, allocatable :: my_incl_array_v(:,:)
     !> Describes the included valence bands for the particular mpi task
     integer :: ngv    !< Number of G-vectors
@@ -168,9 +169,10 @@ module typedefs_m
   !> FHJ: conduction WFNs for 1 particular kpt and all bands (!) the processor owns
   type conduction_wfns
     integer :: nband  !< This is actually the number of valence+conduction bands!
-    integer, allocatable :: incl_array
+    integer, allocatable :: incl_array(:,:)
     !> Describes ALL included bands, both valence and conduction.
     integer, allocatable :: incl_array_c(:,:) !< describes all included conduction bands
+    integer :: n_excl !< number of excluded bands (including valence)
     integer, allocatable :: my_incl_array_c(:,:)
     !> Describes the included conduction bands for the particular mpi task
     integer :: ngc    !< Number of G-vectors
@@ -320,6 +322,7 @@ module typedefs_m
 
     real(DP), pointer :: qpt(:,:) !< (3,nq) q-points in eps0mat+epsmat files, or provided in sigma.inp
     integer :: ncrit           !< number of partially occupied bands
+    integer :: ncrit_excl      !< number of excluded occupied bands
     real(DP) :: efermi         !< Fermi level
     real(DP) :: efermi_input   !< The value to set E_Fermi in the input file, in eV
     logical :: rfermi          !< Measure the new Fermi level relative to that of the neutral system
