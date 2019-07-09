@@ -102,6 +102,9 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 
   integer, allocatable, save :: ind_old(:)
   integer, save :: irk_old=0
+!#BEGIN_INTERNAL_ONLY
+  integer :: i_br, start_band, band_range
+!#END_INTERNAL_ONLY
 
   PUSH_SUB(genwf_mpi)
 
@@ -221,6 +224,15 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 
     SAFE_ALLOCATE(vwfn%ev, ((vwfn%nband+pol%ncrit),kp%nspin))
     vwfn%ev(1:(vwfn%nband+pol%ncrit),:) = eig(1:(vwfn%nband+pol%ncrit),:)
+!#BEGIN_INTERNAL_ONLY
+    start_band=1
+    do i_br = 1, size(vwfn%incl_array_v,1)
+      band_range = vwfn%incl_array_v(i_br,2)-vwfn%_incl_array_v(i_br,1)+1
+      vwfn%ev(start_band:start_band+band_range,:) = &
+        eig(vwfn%incl_array_v(i_br,1):vwfn%incl_array_v(i_br,2), :)
+      start_band = start_band+band_range
+    end do
+!#END_INTERNAL_ONLY
 
 ! JRD: Map planewave components for rk+q, to those of rk
 ! (even for q--> 0)
@@ -327,9 +339,21 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     
     ng = intwfnc%ng(ikrkq)
     cwfn%ec(1:cwfn%nband,1:kp%nspin)=kp%el(1+vwfn%ncore_excl:cwfn%nband+vwfn%ncore_excl,ikrkq,1:kp%nspin)
+! OAH: We must reindex cwfn%ec so that it only includes the bands that we want.
+! note that in the above, it seems cwfn%ec gets ALL eigenvalues, not just conduction eigenvalues
+!#BEGIN_INTERNAL_ONLY
+    start_band = 1
+    do i_br = 1, size(cwfn%incl_array,1)
+      band_range = cwfn%incl_array(i_br, 2) - cwfn%incl_array(i_br, 1) + 1
+      cwfn%ec(start_band:start_band+band_range, 1:kp%nspin) = &
+         kp%el(cwfn%incl_array(i_br, 1):cwfn%incl_array(i_br,2), ikrkq, 1:kp%nspin)
+      start_band = start_band + band_range
+    end do
+!#END_INTERNAL_ONLY
     qk(:)=intwfnc%qk(:,ikrkq)
     isortc(1:ng)=intwfnc%isort(1:ng,ikrkq)
     
+
 ! Check kpoint (again ...  boring...)
 ! Check that kp%rk(:,ikrkq) = qk  (why it wouldn`t is a mystery!)
 

@@ -34,8 +34,11 @@ subroutine inread(pol,vwfn,cwfn)
   
   character*256 :: blockword,keyword,line,errmsg
   integer :: ii,itestq,jj,nqpt_read,iostat
-  integer ::j,nband_ranges,incl_start(MAX_BANDS),incl_end(MAX_BANDS)
+!#BEGIN_INTERNAL_ONLY
+  integer ::j,incl_start(MAX_BANDS),incl_end(MAX_BANDS)
+  integer :: nband_ranges=1
   ! OAH: REMOVE j when done testing
+!#END_INTERNAL_ONLY
   real(DP) :: div,qpt_read(3,MAX_KPTS),qw_read(MAX_KPTS)
   integer :: qflags(MAX_KPTS)
   integer :: band_occ(MAX_BANDS), ifreqCounter
@@ -60,6 +63,9 @@ subroutine inread(pol,vwfn,cwfn)
 #endif
 
   nqpt_read=0
+!#BEGIN_INTERNAL_ONLY
+  incl_start(1) = 1
+!#END_INTERNAL_ONLY
   pol%nq=0
   pol%nq0=0
   pol%nq1=0
@@ -303,6 +309,9 @@ subroutine inread(pol,vwfn,cwfn)
       read(line,*,err=110) pol%ecuts
     elseif(trim(keyword).eq.'number_bands') then
       read(line,*,err=110) cwfn%nband
+!#BEGIN_INTERNAL_ONLY
+      incl_end(1) = cwfn%nband
+!#END_INTERNAL_ONLY
       call check_bounds_nbands(cwfn%nband, 'number_bands')
     elseif(trim(keyword).eq.'band_occupation') then
       read(line,*,err=110) (band_occ(ii),ii=1,cwfn%nband)
