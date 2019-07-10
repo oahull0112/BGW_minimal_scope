@@ -699,7 +699,7 @@ contains
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
         call read_hdf5_wavefunctions(kp, gvec, pol, cwfn, vwfn, intwfnv, intwfnc)
-        if (peinf%inode.eq.35) then
+        if (peinf%inode.eq.0) then
           write(*,*) "information for mpi task: ", peinf%inode
           write(*,*) "do i own v:"
           write(*,*) peinf%doiownv
@@ -1181,16 +1181,6 @@ contains
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%nvownactual))
     call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
       peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
-    if (peinf%inode.eq.0) then
-      write(*,*) "valence first band coefs:"
-      do i_oh = 1, size(wfns, 3)
-        write(*,*) wfns(1,1,i_oh)
-      end do
-    !  write(*,*) "conduction first band coefs:"
-    !  do i_oh = 1, size(intwfnc%cg, 2)
-    !    write(*,*) intwfnc%cg(1, i_oh, 1)
-    !  end do
-    end if
 
 ! DVF : here we flip from hdf5 wfn ordering of indices to the `traditional` BGW ordering of indices, with
 ! respect to spin. The traditional BGW ordering should change soon to reflect the newer, better hdf5 setup
@@ -1380,8 +1370,12 @@ contains
 ! and store the wavefunctions for the highest nv-ncore_excl valence states, where nv is the
 ! number of valence states kept in the calculation. In the worst case scenario, where
 ! ncore_excl > nv, we would store no wavefunctions at all.
+
         ib2=ib-vwfn%ncore_excl
-        if(ib2.le. vwfn%nband) then
+! OAH: try this...
+!       ib2=ib-cwfn%n_excl
+       if(ib2.le. vwfn%nband) then
+
 ! Write to valence file
 
           if (peinf%doiownv(ib2)) then
@@ -1613,7 +1607,7 @@ contains
 
 !===============================================================================
 !
-! subroutine determine_n_incl   By OAH             Last Modified 07/02/2019
+! subroutine determine_n_incl   By OAH             Last Modified 07/10/2019
 !
 ! A subroutine for band-inclusion functionality
 !
@@ -1704,6 +1698,20 @@ contains
     ncrit = ncrit_incl
     !nc_tot = nc_incl
     nv_tot = nv_incl
+    if (nv_incl .eq. 0) then
+      if (peinf%inode.eq.0) then
+        call die('no valence bands specified in band_ranges.', &
+          only_root_writes=.true.)
+      end if
+    end if
+
+    if (nc_incl .eq. 0) then
+      if (peinf%inode.eq.0) then
+        call die('no conduction bands specified in band_ranges.', &
+          only_root_writes=.true.)
+      end if
+    end if
+
     
     if (peinf%inode.eq.0) then
       write(*,*) "nv_incl = ", nv_incl
