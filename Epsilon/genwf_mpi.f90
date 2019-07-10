@@ -104,6 +104,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
   integer, save :: irk_old=0
 !#BEGIN_INTERNAL_ONLY
   integer :: i_br, start_band, band_range
+  integer :: i_oh, j_oh
 !#END_INTERNAL_ONLY
 
   PUSH_SUB(genwf_mpi)
@@ -154,14 +155,28 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
   if (.not.use_wfnq) then
     ng = intwfnv%ng(ikrkq)
     if (irk .ne. irk_old) then
-      eig(1:itval,1:kp%nspin)=kp_point%el(1+vwfn%ncore_excl:itval+vwfn%ncore_excl,ikrkq,1:kp%nspin)
+      ! OAH: make changes here
+      start_band=1
+      do i_br = 1, size(cwfn%incl_array,1)
+        band_range = cwfn%incl_array(i_br,2) - cwfn%incl_array_c(i_br,1) + 1
+        eig(start_band:start_band+band_range,1:kp%nspin)= &
+          kp_point%el(cwfn%incl_array(i_br,1):cwfn%incl_array(i_br,2),ikrkq,1:kp%nspin)
+     ! eig(1:itval,1:kp%nspin)=kp_point%el(1+vwfn%ncore_excl:itval+vwfn%ncore_excl,ikrkq,1:kp%nspin)
+      end do
       isortc(1:ng)=intwfnv%isort(1:ng,ikrkq)
     endif
     qk(:)=intwfnv%qk(:,ikrkq)
   else
     ng = intwfnvq%ng(ikrkq)
     if (irk .ne. irk_old) then
-      eig(1:itval,1:kp%nspin)=kp_point%el(1+vwfn%ncore_excl:itval+vwfn%ncore_excl,ikrkq,1:kp%nspin)
+      ! OAH: make changes here
+      start_band=1
+      do i_br = 1, size(cwfn%incl_array,1)
+        band_range = cwfn%incl_array(i_br,2) - cwfn%incl_array(i_br,1) + 1
+        eig(start_band:start_band+band_range,1:kp%nspin)= &
+          kp_point%el(cwfn%incl_array(i_br,1):cwfn%incl_array(i_br,2),ikrkq,1:kp%nspin)
+      end do
+      !eig(1:itval,1:kp%nspin)=kp_point%el(1+vwfn%ncore_excl:itval+vwfn%ncore_excl,ikrkq,1:kp%nspin)
       isortc(1:ng)=intwfnvq%isort(1:ng,ikrkq)
     endif
     qk(:)=intwfnvq%qk(:,ikrkq)
@@ -223,15 +238,28 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 ! SIB: put read eigenvalues into vwfn%ev(band,spin).
 
     SAFE_ALLOCATE(vwfn%ev, ((vwfn%nband+pol%ncrit),kp%nspin))
-    vwfn%ev(1:(vwfn%nband+pol%ncrit),:) = eig(1:(vwfn%nband+pol%ncrit),:)
+!    vwfn%ev(1:(vwfn%nband+pol%ncrit),:) = eig(1:(vwfn%nband+pol%ncrit),:)
 !#BEGIN_INTERNAL_ONLY
-    start_band=1
-    do i_br = 1, size(vwfn%incl_array_v,1)
-      band_range = vwfn%incl_array_v(i_br,2)-vwfn%_incl_array_v(i_br,1)+1
-      vwfn%ev(start_band:start_band+band_range,:) = &
-        eig(vwfn%incl_array_v(i_br,1):vwfn%incl_array_v(i_br,2), :)
-      start_band = start_band+band_range
-    end do
+!    start_band=1
+!    do i_br = 1, size(vwfn%incl_array_v,1)
+!      band_range = vwfn%incl_array_v(i_br,2)-vwfn%incl_array_v(i_br,1)+1
+!      vwfn%ev(start_band:start_band+band_range,:) = &
+!        eig(vwfn%incl_array_v(i_br,1):vwfn%incl_array_v(i_br,2), :)
+!      start_band = start_band+band_range
+!    end do
+
+    vwfn%ev(1:vwfn%nband,:) = eig(1:vwfn%nband,:)
+
+    if (peinf%inode.eq.0)then
+      write(*,*) "Valence wavefunction eigenvalues: "
+      do i_oh = 1, size(vwfn%ev, 1)
+        write(*,*) (vwfn%ev(i_oh, j_oh), j_oh = 1, size(vwfn%ev, 2))
+      end do
+      write(*,*) "eig matrix values: "
+      do i_oh = 1, size(eig, 1)
+        write(*,*) (eig(i_oh, j_oh), j_oh=1,size(eig,2))
+      end do
+    end if
 !#END_INTERNAL_ONLY
 
 ! JRD: Map planewave components for rk+q, to those of rk
@@ -338,7 +366,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     SAFE_ALLOCATE(cwfn%ec, (cwfn%nband,kp%nspin))
     
     ng = intwfnc%ng(ikrkq)
-    cwfn%ec(1:cwfn%nband,1:kp%nspin)=kp%el(1+vwfn%ncore_excl:cwfn%nband+vwfn%ncore_excl,ikrkq,1:kp%nspin)
+!    cwfn%ec(1:cwfn%nband,1:kp%nspin)=kp%el(1+vwfn%ncore_excl:cwfn%nband+vwfn%ncore_excl,ikrkq,1:kp%nspin)
 ! OAH: We must reindex cwfn%ec so that it only includes the bands that we want.
 ! note that in the above, it seems cwfn%ec gets ALL eigenvalues, not just conduction eigenvalues
 !#BEGIN_INTERNAL_ONLY
@@ -349,6 +377,12 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
          kp%el(cwfn%incl_array(i_br, 1):cwfn%incl_array(i_br,2), ikrkq, 1:kp%nspin)
       start_band = start_band + band_range
     end do
+    if (peinf%inode.eq.0)then
+      write(*,*) "conduction eigenvalues (all?)"
+      do i_oh = 1, size(cwfn%ec, 1)
+        write(*,*) (cwfn%ec(i_oh, j_oh), j_oh = 1, size(cwfn%ec, 2))
+      end do
+    end if
 !#END_INTERNAL_ONLY
     qk(:)=intwfnc%qk(:,ikrkq)
     isortc(1:ng)=intwfnc%isort(1:ng,ikrkq)
