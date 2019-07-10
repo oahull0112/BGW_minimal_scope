@@ -158,9 +158,10 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
       ! OAH: make changes here
       start_band=1
       do i_br = 1, size(cwfn%incl_array,1)
-        band_range = cwfn%incl_array(i_br,2) - cwfn%incl_array_c(i_br,1) + 1
-        eig(start_band:start_band+band_range,1:kp%nspin)= &
+        band_range = cwfn%incl_array(i_br,2) - cwfn%incl_array(i_br,1) + 1
+        eig(start_band:start_band+band_range-1,1:kp%nspin)= &
           kp_point%el(cwfn%incl_array(i_br,1):cwfn%incl_array(i_br,2),ikrkq,1:kp%nspin)
+        start_band = start_band + band_range
      ! eig(1:itval,1:kp%nspin)=kp_point%el(1+vwfn%ncore_excl:itval+vwfn%ncore_excl,ikrkq,1:kp%nspin)
       end do
       isortc(1:ng)=intwfnv%isort(1:ng,ikrkq)
@@ -373,7 +374,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     start_band = 1
     do i_br = 1, size(cwfn%incl_array,1)
       band_range = cwfn%incl_array(i_br, 2) - cwfn%incl_array(i_br, 1) + 1
-      cwfn%ec(start_band:start_band+band_range, 1:kp%nspin) = &
+      cwfn%ec(start_band:start_band+band_range-1, 1:kp%nspin) = &
          kp%el(cwfn%incl_array(i_br, 1):cwfn%incl_array(i_br,2), ikrkq, 1:kp%nspin)
       start_band = start_band + band_range
     end do
