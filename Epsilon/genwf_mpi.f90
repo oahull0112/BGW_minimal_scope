@@ -252,11 +252,11 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     vwfn%ev(1:vwfn%nband,:) = eig(1:vwfn%nband,:)
 
     if (peinf%inode.eq.0)then
-      write(*,*) "Valence wavefunction eigenvalues: "
+      write(*,*) "Valence wavefunction eigenvalues:  (inode = ", peinf%inode, ")"
       do i_oh = 1, size(vwfn%ev, 1)
         write(*,*) (vwfn%ev(i_oh, j_oh), j_oh = 1, size(vwfn%ev, 2))
       end do
-      write(*,*) "eig matrix values: "
+      write(*,*) "eig matrix values: (inode = ", peinf%inode, ")"
       do i_oh = 1, size(eig, 1)
         write(*,*) (eig(i_oh, j_oh), j_oh=1,size(eig,2))
       end do
@@ -370,6 +370,8 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 !    cwfn%ec(1:cwfn%nband,1:kp%nspin)=kp%el(1+vwfn%ncore_excl:cwfn%nband+vwfn%ncore_excl,ikrkq,1:kp%nspin)
 ! OAH: We must reindex cwfn%ec so that it only includes the bands that we want.
 ! note that in the above, it seems cwfn%ec gets ALL eigenvalues, not just conduction eigenvalues
+! What is the difference between cwfn%ec and eig? Why was eig allocated for all
+! eigs but only given the valence?
 !#BEGIN_INTERNAL_ONLY
     start_band = 1
     do i_br = 1, size(cwfn%incl_array,1)
@@ -379,7 +381,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
       start_band = start_band + band_range
     end do
     if (peinf%inode.eq.0)then
-      write(*,*) "conduction eigenvalues (all?)"
+      write(*,*) "conduction eigenvalues (all?) (inode = ", peinf%inode, ")"
       do i_oh = 1, size(cwfn%ec, 1)
         write(*,*) (cwfn%ec(i_oh, j_oh), j_oh = 1, size(cwfn%ec, 2))
       end do

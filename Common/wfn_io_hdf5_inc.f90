@@ -541,6 +541,13 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   ! single band, including G-vectors from all k-points.
   max_bands_read = min(nbownmax, &
     int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)))
+  if (peinf%inode.eq.0) then
+    write(*,*) "size of single band:"
+    write(*,*) int(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)
+    write(*,*) "max number of bands to read in: "
+    write(*,*) int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
+  end if
+  ! max_bands_read = 2 ! OAH this is just for testing. Remove when done
   if (max_bands_read==0) then
     max_bands_read = 1
     if (peinf%inode==0) then
@@ -555,6 +562,8 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   !write(6,*) 'max_bands_read', max_bands_read
   SAFE_ALLOCATE(wfndata, (SCALARSIZE, ngktot, kp%nspin*kp%nspinor, max_bands_read))
 
+  !FIXME: OAH: inclusion functionality works as long as the bands read in don't
+  !exceed the max number of bands to read in.
   ib = 1
   do while (ib<=nbownmax)
     bands_read = max(min(nbownactual, ib-1 + max_bands_read) - ib + 1, 0)
@@ -566,11 +575,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
     call h5screate_simple_f(4, count, memspace, error)
     do_read = bands_read>0.and.(peinf%inode==reader.or.comm_style==0)
 
-    ! I think this piece oflogic will get moved so as to not encompass the HDF5
-    ! calls ... need to think more about the looping and how to handle the
-    ! sub-indexing.
-    !write(*,*) "n_incl: ", n_incl, "bands_read: ", bands_read
-   ! if(n_incl .le. bands_read) then
       if (do_read) then
         offset(1) = 0
         offset(2) = 0
@@ -591,24 +595,52 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
         call H5sselect_none_f(dataspace,error)
       endif
 
+    !  do i = 2, incl_array_nrows
+    !    if(incl_array(i,1).ne. -1) then
+    !      offset(4) = incl_array(i, 1) - 1
+    !      count(4) = incl_array(i,2) - incl_array(i,1) +1
+    !      call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
+    !        count, error)
+    !    end if
+    !  end do
+
+    !  offset_out(4) = count_out(4)
+    !  do i = 2,incl_array_nrows
+    !    if(incl_array(i,1).ne.-1) then
+    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
+    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out,&
+    !        count_out, error)
+    !    end if
+    !  end do
+
+      count_out = count
+      offset_out=0
+      count_out(4) = incl_array(1,2) - incl_array(1,1) + 1
+      call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, offset_out, &
+        count_out, error)
+      offset_out(4) = count_out(4)
       do i = 2, incl_array_nrows ! remember to declare this
         if(incl_array(i,1).ne. -1) then
           offset(4) = incl_array(i,1) - 1
           count(4) = incl_array(i,2) - incl_array(i,1) + 1
           call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
             count, error)
-        end if
-      end do
-
-      offset_out(4) = count_out(4)
-      do i=2,incl_array_nrows
-        if(incl_array(i,1).ne. -1) then
-          count_out(4) = incl_array(i,2)-incl_array(i,1)+1
+          count_out(4) = incl_array(i, 2) - incl_array(i, 1) + 1
           call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
             count_out, error)
           offset_out(4) = offset_out(4) + count_out(4)
         end if
       end do
+
+    !  offset_out(4) = count_out(4)
+    !  do i=2,incl_array_nrows
+    !    if(incl_array(i,1).ne. -1) then
+    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
+    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
+    !        count_out, error)
+    !      offset_out(4) = offset_out(4) + count_out(4)
+    !    end if
+    !  end do
   
       if (peinf%verb_debug .and. peinf%inode==reader) then
         write(6,'(a,i0,a)') 'ib=',ib,' before read!'
@@ -629,7 +661,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
 #else
       call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace)
 #endif
-   ! end if ! cwfn%nband - cwfn%n_excl
 
     if (peinf%verb_debug .and. peinf%inode==reader) then
       write(6,'(a,i0,a)') 'ib=',ib,' after read!'

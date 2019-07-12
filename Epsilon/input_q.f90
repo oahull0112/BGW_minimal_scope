@@ -51,6 +51,9 @@ subroutine input_q(gvec,kpq,cwfn,vwfn,pol,intwfnvq)
   integer :: iflavor
   type(gspace) :: gvecq
 
+  ! OAH
+  integer i_oh
+
   PUSH_SUB(input_q)
 
   sheader = 'WFN'
@@ -93,7 +96,8 @@ subroutine input_q(gvec,kpq,cwfn,vwfn,pol,intwfnvq)
     "shifted grid", should_search = .false., should_update = .false., write7 = .true.)
 
   if (peinf%inode==0) then
-    if(any (kpq%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl .or. kpq%ifmax(:,:) > vwfn%nband +vwfn%ncore_excl+ pol%ncrit)) then
+    if(any (kpq%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
+      .or. kpq%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl)+pol%ncrit)) then
       write(0,'(a,i6,a,i6,a)') 'epsilon.inp says there are ', vwfn%nband, ' fully occupied bands and ', &
         pol%ncrit, ' partially occupied.'
       write(0,'(a,2i6)') 'This is inconsistent with highest bands in WFNq file; min, max = ', minval(kpq%ifmax), maxval(kpq%ifmax)
@@ -112,6 +116,14 @@ subroutine input_q(gvec,kpq,cwfn,vwfn,pol,intwfnvq)
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
       call read_hdf5_wavefunctions(kpq, gvec, pol, cwfn, vwfn, intwfnvq)
+      if (peinf%inode.eq.0) then
+        write(*,*) "information for mpi_task: ", peinf%inode
+        write(*,*) "q-valence first band coefs:"
+        do i_oh = 1, size(intwfnvq%cg, 2)
+          write(*,*) intwfnvq%cg(1, i_oh, 1)
+        end do
+      end if
+
 #endif
 !#END_INTERNAL_ONLY
     else
