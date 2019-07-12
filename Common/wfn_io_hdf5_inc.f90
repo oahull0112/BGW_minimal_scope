@@ -595,24 +595,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
         call H5sselect_none_f(dataspace,error)
       endif
 
-    !  do i = 2, incl_array_nrows
-    !    if(incl_array(i,1).ne. -1) then
-    !      offset(4) = incl_array(i, 1) - 1
-    !      count(4) = incl_array(i,2) - incl_array(i,1) +1
-    !      call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
-    !        count, error)
-    !    end if
-    !  end do
-
-    !  offset_out(4) = count_out(4)
-    !  do i = 2,incl_array_nrows
-    !    if(incl_array(i,1).ne.-1) then
-    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
-    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out,&
-    !        count_out, error)
-    !    end if
-    !  end do
-
       count_out = count
       offset_out=0
       count_out(4) = incl_array(1,2) - incl_array(1,1) + 1
@@ -632,16 +614,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
         end if
       end do
 
-    !  offset_out(4) = count_out(4)
-    !  do i=2,incl_array_nrows
-    !    if(incl_array(i,1).ne. -1) then
-    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
-    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
-    !        count_out, error)
-    !      offset_out(4) = offset_out(4) + count_out(4)
-    !    end if
-    !  end do
-  
       if (peinf%verb_debug .and. peinf%inode==reader) then
         write(6,'(a,i0,a)') 'ib=',ib,' before read!'
         !call procmem(mem,nmpinode)
@@ -706,7 +678,7 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
     endif
 #endif
     ib = ib + bands_read_max
-  enddo
+  enddo ! do ib .le. nbownmax
 
 #ifdef MPI
   if (comm_style==1.and.nbownactual>0) then

@@ -255,6 +255,15 @@ contains
          peinf%nvownactual, vwfn%my_incl_array_v)
     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
          peinf%ncownactual, cwfn%my_incl_array_c)
+    if (peinf%inode==0) then
+      write(6,'(/1x,a)') 'Calculation parameters, round two:'
+      write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
+      write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
+      write(6,'(1x,a,i0)') '- Number of fully occupied valence bands: ', vwfn%nband
+      write(6,'(1x,a,i0)') '- Number of partially occ. conduction bands: ', pol%ncrit
+      write(6,'(1x,a,3(1x,i0))') '- Monkhorst-Pack q-grid for epsilon(q):', pol%qgrid
+      write(6,*)
+    endif
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -710,6 +719,7 @@ contains
           write(*,*) "valence first band coefs:"
           do i_oh = 1, size(intwfnv%cg, 2)
             write(*,*) intwfnv%cg(1, i_oh, 1)
+    !        write(*,*)intwfnv%cgk(1, i_oh, 1, 1)
           end do
           write(*,*) "do i own c:"
           write(*,*) peinf%doiownc
@@ -720,6 +730,7 @@ contains
           write(*,*) "conduction first band coefs:"
           do i_oh = 1, size(intwfnc%cg, 2)
             write(*,*) intwfnc%cg(1, i_oh, 1)
+!            write(*,*) intwfnc%cgk(1, i_oh, 1, 1)
           end do
         end if
 #endif
@@ -1607,7 +1618,7 @@ contains
 
 !===============================================================================
 !
-! subroutine determine_n_incl   By OAH             Last Modified 07/10/2019
+! subroutine determine_n_incl   By OAH             Last Modified 07/12/2019
 !
 ! A subroutine for band-inclusion functionality
 !
@@ -1684,7 +1695,6 @@ contains
         else
           cycle
       end if
-      
     end do
 
     ! OAH: need a test case that has partially occupied bands
@@ -1692,12 +1702,21 @@ contains
     ! Also, need to set in inread.f90 that the default n_excl and
     ! the default nv_excl are 0 (will need to chagne intent out to
     ! intent inout for these when the time comes)
-    n_excl = ntot - nv_incl - nc_incl - ncrit_incl
-    nv_excl = nv_tot - nv_incl
-    ntot = nv_incl + nc_incl - ncrit_incl
+    !OAH: these guys below are double-counting...
+    if (peinf%inode.eq.0)then
+      write(*,*) "nv_incl: ", nv_incl
+      write(*,*) "ncrit_incl: ", ncrit_incl
+      write(*,*) "nc_incl:", nc_incl
+    end if
+    nv_incl = nv_incl - ncrit_incl
+    n_excl = ntot - nv_incl - nc_incl !- ncrit_incl ! - ncrit_incl
+    ntot = nv_incl + nc_incl ! - ncrit_incl
     ncrit = ncrit_incl
     !nc_tot = nc_incl
+    nv_excl = nv_tot - nv_incl
     nv_tot = nv_incl
+   ! OAH: try this:
+   ! nv_excl = nv_tot - nv_incl
     if (nv_incl .eq. 0) then
       if (peinf%inode.eq.0) then
         call die('no valence bands specified in band_ranges.', &
@@ -1714,7 +1733,7 @@ contains
 
     
     if (peinf%inode.eq.0) then
-      write(*,*) "nv_incl = ", nv_incl
+      write(*,*) "nv_incl = ", nv_tot ! nv_incl
       write(*,*) "nc_incl = ", nc_incl
       write(*,*) "ntot = ", ntot
       write(*,*) "n_excl = ", n_excl
