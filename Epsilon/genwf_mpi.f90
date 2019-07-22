@@ -249,8 +249,9 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 !      start_band = start_band+band_range
 !    end do
 
-    vwfn%ev(1:vwfn%nband,:) = eig(1:vwfn%nband,:)
+    vwfn%ev(1:vwfn%nband+pol%ncrit,:) = eig(1:vwfn%nband+pol%ncrit,:)
 
+    ! OAH: remove when done
     if (peinf%inode.eq.0)then
       write(*,*) "Valence wavefunction eigenvalues:  (inode = ", peinf%inode, ")"
       do i_oh = 1, size(vwfn%ev, 1)
@@ -380,6 +381,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
          kp%el(cwfn%incl_array(i_br, 1):cwfn%incl_array(i_br,2), ikrkq, 1:kp%nspin)
       start_band = start_band + band_range
     end do
+    ! OAH: remove below when done
     if (peinf%inode.eq.0)then
       write(*,*) "conduction eigenvalues (all?) (inode = ", peinf%inode, ")"
       do i_oh = 1, size(cwfn%ec, 1)

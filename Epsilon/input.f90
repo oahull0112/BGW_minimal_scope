@@ -250,12 +250,35 @@ contains
    !   cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl, pol%ncrit_incl)
     
     call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, &
-        cwfn%nband-vwfn%nband, vwfn%incl_array_v, cwfn%incl_array_c)
+        cwfn%nband-vwfn%nband, pol%ncrit, vwfn%incl_array_v, cwfn%incl_array_c)
     call make_my_incl_array(vwfn%incl_array_v, peinf%doiownv, &
          peinf%nvownactual, vwfn%my_incl_array_v)
     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
          peinf%ncownactual, cwfn%my_incl_array_c)
     if (peinf%inode==0) then
+      write(*,*) "vwfn%nband: ", vwfn%nband
+      write(*,*) "pol%ncrit: ", pol%ncrit
+      write(*,*) "cwfn%nband: ", cwfn%nband
+      write(*,*) "valence inclusion array:"
+      do i_oh = 1, size(vwfn%incl_array_v, 1)
+        write(*,*) (vwfn%incl_array_v(i_oh,j_oh), j_oh = 1, &
+        size(vwfn%incl_array_v,2))
+      end do
+      write(*,*) "conduction inclusion array:"
+      do i_oh = 1, size(cwfn%incl_array_c, 1)
+        write(*,*) (cwfn%incl_array_c(i_oh,j_oh), j_oh = 1, &
+        size(cwfn%incl_array_c,2))
+      end do
+      write(*,*) "my valence inclusion array:"
+      do i_oh = 1, size(vwfn%my_incl_array_v, 1)
+        write(*,*) (vwfn%my_incl_array_v(i_oh,j_oh), j_oh = 1, &
+        size(vwfn%my_incl_array_v,2))
+      end do
+      write(*,*) "my conduction inclusion array:"
+      do i_oh = 1, size(cwfn%my_incl_array_c, 1)
+        write(*,*) (cwfn%my_incl_array_c(i_oh,j_oh), j_oh = 1, &
+        size(cwfn%my_incl_array_c,2))
+      end do
       write(6,'(/1x,a)') 'Calculation parameters, round two:'
       write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
       write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
@@ -1234,7 +1257,6 @@ contains
     call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
       peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
 
-
     call logit('Checking norms')
     ! write to conduction file
     do ib = 1, peinf%ncownactual
@@ -1563,11 +1585,18 @@ contains
 !
 !===============================================================================
   subroutine make_vc_incl_array(incl_array, nvalence, nconduction, &
-             incl_array_v, incl_array_c)
+             ncrit, incl_array_v, incl_array_c)
+           ! OAH 7/22: take ncrit as input, and adjust the nconduction in this
+           ! way. Have whatever the first index of nconduction is be subtracted
+           ! back by ncrit, which should give the proper starting value. And see
+           ! if this works. May need to then adjust my_incl_array subroutine,
+           ! but current problem may be that ncrit is not getting included in
+           ! the conduction inclusion array, and therefore not read in properly.
     
     integer, intent(in) :: incl_array(:,:)
     integer, intent(in) :: nvalence ! nv_incl
     integer, intent(in) :: nconduction ! nc_incl
+    integer, intent(in) :: ncrit
     integer, allocatable, intent(out) :: incl_array_v(:,:)
     integer, allocatable, intent(out) :: incl_array_c(:,:)
 
@@ -1613,6 +1642,13 @@ contains
       incl_array_v(j, 2) = find_v
       incl_array_c(1, 1) = find_v + 1
     end if ! vcount .eq. nvalence
+
+    write(*,*) "incl_array_c first entry: ", incl_array_c(1,1)
+    write(*,*) "ncrit: ", ncrit
+    ! actually, don't change this here. Change it only in the wfn_io file...
+    ! and compare and see if it gives the same thing
+    incl_array_c(1,1) = incl_array_c(1,1) - ncrit
+    write(*,*) "incl_array_c first entry: ", incl_array_c(1,1)
 
   end subroutine make_vc_incl_array
 
