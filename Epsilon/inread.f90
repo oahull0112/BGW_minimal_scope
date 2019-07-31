@@ -509,6 +509,8 @@ subroutine inread(pol,vwfn,cwfn)
 !#END_INTERNAL_ONLY
 
 !#BEGIN_INTERNAL_ONLY
+! OAH: set the inclusion array
+! default is [1 n], n the total number of bands
   SAFE_ALLOCATE(cwfn%incl_array, (nband_ranges, 2))
   cwfn%incl_array(:,1) = incl_start(1:nband_ranges)
   cwfn%incl_array(:,2) = incl_end(1:nband_ranges)

@@ -109,6 +109,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 
   PUSH_SUB(genwf_mpi)
 
+
   if (.not.GK_allocated) then
     SAFE_ALLOCATE(GK, (gvec%ng))
     call get_GK_array_from_gvecs(gvec%ng, gvec%components, GK)
@@ -130,6 +131,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
   else
     kp_point => kp
   endif
+
 
 ! We used to assume WFNq contained the needed q->0 point,
 ! but it is better to unfold the shifted grid for more flexibility.
@@ -182,6 +184,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     endif
     qk(:)=intwfnvq%qk(:,ikrkq)
   endif
+
 !      endif
 
   SAFE_ALLOCATE(zintemp, (ng,kp%nspin*kp%nspinor))
@@ -252,16 +255,16 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
     vwfn%ev(1:vwfn%nband+pol%ncrit,:) = eig(1:vwfn%nband+pol%ncrit,:)
 
     ! OAH: remove when done
-    if (peinf%inode.eq.0)then
-      write(*,*) "Valence wavefunction eigenvalues:  (inode = ", peinf%inode, ")"
-      do i_oh = 1, size(vwfn%ev, 1)
-        write(*,*) (vwfn%ev(i_oh, j_oh), j_oh = 1, size(vwfn%ev, 2))
-      end do
-      write(*,*) "eig matrix values: (inode = ", peinf%inode, ")"
-      do i_oh = 1, size(eig, 1)
-        write(*,*) (eig(i_oh, j_oh), j_oh=1,size(eig,2))
-      end do
-    end if
+!    if (peinf%inode.eq.0)then
+!      write(*,*) "Valence wavefunction eigenvalues:  (inode = ", peinf%inode, ")"
+!      do i_oh = 1, size(vwfn%ev, 1)
+!        write(*,*) (vwfn%ev(i_oh, j_oh), j_oh = 1, size(vwfn%ev, 2))
+!      end do
+!      write(*,*) "eig matrix values: (inode = ", peinf%inode, ")"
+!      do i_oh = 1, size(eig, 1)
+!        write(*,*) (eig(i_oh, j_oh), j_oh=1,size(eig,2))
+!      end do
+!    end if
 !#END_INTERNAL_ONLY
 
 ! JRD: Map planewave components for rk+q, to those of rk
@@ -318,6 +321,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
 #endif
 !#END_INTERNAL_ONLY
 
+
 ! BAB:  we check if the norm differs appreciably from unity.
 ! there is no longer a need to further normalize the vector
   if (peinf%check_norms) then
@@ -329,6 +333,7 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
       endif
     enddo
   endif
+
 
 ! End calculation of valence-band wavefunctions
 
@@ -382,12 +387,12 @@ subroutine genwf_mpi(syms,gvec,crys,kp,kpq,irk,rk,qq,vwfn,pol,cwfn,use_wfnq,intw
       start_band = start_band + band_range
     end do
     ! OAH: remove below when done
-    if (peinf%inode.eq.0)then
-      write(*,*) "conduction eigenvalues (all?) (inode = ", peinf%inode, ")"
-      do i_oh = 1, size(cwfn%ec, 1)
-        write(*,*) (cwfn%ec(i_oh, j_oh), j_oh = 1, size(cwfn%ec, 2))
-      end do
-    end if
+!    if (peinf%inode.eq.0)then
+!      write(*,*) "conduction eigenvalues (all?) (inode = ", peinf%inode, ")"
+!      do i_oh = 1, size(cwfn%ec, 1)
+!        write(*,*) (cwfn%ec(i_oh, j_oh), j_oh = 1, size(cwfn%ec, 2))
+!      end do
+!    end if
 !#END_INTERNAL_ONLY
     qk(:)=intwfnc%qk(:,ikrkq)
     isortc(1:ng)=intwfnc%isort(1:ng,ikrkq)

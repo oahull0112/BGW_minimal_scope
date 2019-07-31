@@ -240,7 +240,9 @@ contains
 #endif
 !#BEGIN_INTERNAL_ONLY
     call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
-      pol%ncrit, cwfn%n_excl, vwfn%nv_excl)
+      pol%ncrit, cwfn%n_excl, vwfn%nv_excl, pol%ncrit_excl)
+   ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
+   !   pol%ncrit, cwfn%n_excl, vwfn%nv_excl)
 !#END_INTERNAL_ONLY
     call distribution()
 
@@ -685,8 +687,11 @@ contains
         endif
       endif
 
-      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
-        .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+(vwfn%nv_excl-vwfn%ncore_excl) + &
+      write(*,*) "pol%ncrit + pol%ncrit_excl: ", pol%ncrit+pol%ncrit_excl
+      write(*,*) "pol%ncrit_excl: ", pol%ncrit_excl
+      write(*,*) "pol%ncrit: ", pol%ncrit
+      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl-pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
+        .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) + &
         pol%ncrit)) then
         write(0,'(a,i6,a,i6,a)') 'epsilon.inp says there are ', vwfn%nband, ' fully occupied bands and ', &
           pol%ncrit, ' partially occupied.'
@@ -694,7 +699,7 @@ contains
         call die("band_occupation, number_partial_occup, and WFN inconsistent.")
       endif
 
-      if(maxval(kp%ifmax) - minval(kp%ifmax) > pol%ncrit) then
+      if(maxval(kp%ifmax) - minval(kp%ifmax) > pol%ncrit+pol%ncrit_excl) then
         write(0,'(a,i6,a)') 'epsilon.inp says there are ', pol%ncrit, ' partially occupied bands.'
         write(0,'(a,i6)') 'This is less than the number partially occupied in WFN file: ', maxval(kp%ifmax) - minval(kp%ifmax)
         call die("number_partial_occup and WFN inconsistent.")
@@ -731,31 +736,31 @@ contains
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
         call read_hdf5_wavefunctions(kp, gvec, pol, cwfn, vwfn, intwfnv, intwfnc)
-        if (peinf%inode.eq.0) then
-          write(*,*) "information for mpi task: ", peinf%inode
-          write(*,*) "do i own v:"
-          write(*,*) peinf%doiownv
-          write(*,*) "my valence inclusion array: "
-          do i_oh = 1, size(vwfn%my_incl_array_v,1)
-            write(*,*) (vwfn%my_incl_array_v(i_oh, j_oh), j_oh=1,2)
-          end do
-          write(*,*) "valence first band coefs:"
-          do i_oh = 1, size(intwfnv%cg, 2)
-            write(*,*) intwfnv%cg(1, i_oh, 1)
-    !        write(*,*)intwfnv%cgk(1, i_oh, 1, 1)
-          end do
-          write(*,*) "do i own c:"
-          write(*,*) peinf%doiownc
-          write(*,*) "my conduction inclusion array: "
-          do i_oh = 1, size(cwfn%my_incl_array_c,1)
-            write(*,*) (cwfn%my_incl_array_c(i_oh, j_oh), j_oh=1,2)
-          end do
-          write(*,*) "conduction first band coefs:"
-          do i_oh = 1, size(intwfnc%cg, 2)
-            write(*,*) intwfnc%cg(1, i_oh, 1)
-!            write(*,*) intwfnc%cgk(1, i_oh, 1, 1)
-          end do
-        end if
+!        if (peinf%inode.eq.0) then
+!          write(*,*) "information for mpi task: ", peinf%inode
+!          write(*,*) "do i own v:"
+!          write(*,*) peinf%doiownv
+!          write(*,*) "my valence inclusion array: "
+!          do i_oh = 1, size(vwfn%my_incl_array_v,1)
+!            write(*,*) (vwfn%my_incl_array_v(i_oh, j_oh), j_oh=1,2)
+!          end do
+!          write(*,*) "valence first band coefs:"
+!          do i_oh = 1, size(intwfnv%cg, 2)
+!            write(*,*) intwfnv%cg(1, i_oh, 1)
+!    !        write(*,*)intwfnv%cgk(1, i_oh, 1, 1)
+!          end do
+!          write(*,*) "do i own c:"
+!          write(*,*) peinf%doiownc
+!          write(*,*) "my conduction inclusion array: "
+!          do i_oh = 1, size(cwfn%my_incl_array_c,1)
+!            write(*,*) (cwfn%my_incl_array_c(i_oh, j_oh), j_oh=1,2)
+!          end do
+!          write(*,*) "conduction first band coefs:"
+!          do i_oh = 1, size(intwfnc%cg, 2)
+!            write(*,*) intwfnc%cg(1, i_oh, 1)
+!!            write(*,*) intwfnc%cgk(1, i_oh, 1, 1)
+!          end do
+!        end if
 #endif
 !#END_INTERNAL_ONLY
       else
@@ -1610,6 +1615,11 @@ contains
     j = 0
     nrows = size(incl_array, 1)
 
+!    if (peinf%inode.eq.0) then
+!      write(*,*) "nvalence: ", nvalence
+!      write(*,*) "nconduction: ", nconduction
+!      write(*,*) "ncrit: ", ncrit
+!    end if
     ! Figure out the global incl_array_v, incl_array_c.
     ! First do while gets the index (j) of the row that contains both valence
     ! and conduction bands. The remaining logic splits the array accordingly.
@@ -1622,15 +1632,15 @@ contains
     ! If the last band in the range equals nvalence, then we take this row and
     ! all rows above it and assign to incl_array_v, and the rest to
     ! incl_array_c. This situation will occur if frontier bands are excluded.
-    if (vcount .eq. nvalence) then
-      allocate(incl_array_c(crows, 2))
-      allocate(incl_array_v(j, 2))
-      incl_array_v = incl_array(1:j, :)
-      incl_array_c = incl_array(j+1:nrows, :)
-    ! Otherwise, the "split" between v and c occurs somewhere inside a range of
-    ! band values. We determine where the split occurs, then assign v, c
-    ! incl_arrays accordingly.
-    else
+!    if (vcount .eq. nvalence) then
+!      allocate(incl_array_c(crows, 2))
+!      allocate(incl_array_v(j, 2))
+!      incl_array_v = incl_array(1:j, :)
+!      incl_array_c = incl_array(j+1:nrows, :)
+!    ! Otherwise, the "split" between v and c occurs somewhere inside a range of
+!    ! band values. We determine where the split occurs, then assign v, c
+!    ! incl_arrays accordingly.
+!    else
       do while (vcount .ne. nvalence)
         vcount = vcount - 1
         find_v = find_v - 1
@@ -1641,20 +1651,28 @@ contains
       incl_array_c = incl_array(j:nrows, :)
       incl_array_v(j, 2) = find_v
       incl_array_c(1, 1) = find_v + 1
-    end if ! vcount .eq. nvalence
+!    end if ! vcount .eq. nvalence
 
-    write(*,*) "incl_array_c first entry: ", incl_array_c(1,1)
-    write(*,*) "ncrit: ", ncrit
     ! actually, don't change this here. Change it only in the wfn_io file...
     ! and compare and see if it gives the same thing
     incl_array_c(1,1) = incl_array_c(1,1) - ncrit
-    write(*,*) "incl_array_c first entry: ", incl_array_c(1,1)
+!    if (peinf%inode.eq.0) then
+!      write(*,*) "incl_array_v:"
+!      do i = 1, size(incl_array_v,1)
+!        write(*,*) (incl_array_v(i,j), j=1,2)
+!      end do
+!      write(*,*)
+!      write(*,*) "incl_array_c:"
+!      do i = 1, size(incl_array_c,1)
+!        write(*,*) (incl_array_c(i,j), j=1,2)
+!      end do
+!    end if
 
   end subroutine make_vc_incl_array
 
 !===============================================================================
 !
-! subroutine determine_n_incl   By OAH             Last Modified 07/12/2019
+! subroutine determine_n_incl   By OAH             Last Modified 07/31/2019
 !
 ! A subroutine for band-inclusion functionality
 !
@@ -1662,97 +1680,141 @@ contains
 ! calculation, then rewrites cwfn%nband, vwfn%nband, and pol%ncrit accordingly.
 !
 !===============================================================================
-  subroutine determine_n_incl(incl_array, ntot, nv_tot, ncrit, n_excl, nv_excl)
+  subroutine determine_n_incl(incl_array, ntot, nv_tot, ncrit, n_excl, & 
+      nv_excl, ncrit_excl)
 
     integer, intent(in) :: incl_array(:,:)
-    integer, intent(inout) :: ntot ! all bands, cwfn%nband
-    integer, intent(inout) :: nv_tot ! all valence bands, vwfn%nband
-    integer, intent(inout) :: ncrit
+    integer, intent(inout) :: ntot ! cwfn_nband
+    integer, intent(inout) :: nv_tot ! vwfn_nband
+    integer, intent(inout) :: ncrit ! pol_ncrit
     integer, intent(out) :: n_excl ! total number of excluded bands
     integer, intent(out) :: nv_excl ! number of excluded valence bands
-
-    integer :: temp_nv_tot, temp_nc_tot, temp_ntot
-    integer :: nv_incl ! number of valence included
-    integer :: nc_incl  ! number of conduction included
-    integer :: ncrit_incl
-    ! Note that nv_incl and nc_incl both include ncrit
-
+    integer, intent(out) :: ncrit_excl ! number of excluded partially occupieds
+  
     integer :: i, ir
     integer :: last_v, first_c, search_v, search_c
     integer :: n_incl_rows
+    integer :: c_range
+  
+    integer :: nv_incl, nc_incl, ncrit_incl
+    integer :: v_place, c_place ! the row number of the last v (c) band
+    integer :: vr_place, cr_place ! place inside of row range
+    integer :: start_ncrit, end_ncrit, last_ncrit, first_ncrit
+    integer :: search_ncrit_above, search_ncrit_below
+    integer :: ntot_temp, nv_tot_temp, ncrit_temp
 
-    temp_nv_tot = nv_tot + ncrit
-   ! temp_nc_tot = nc_tot + ncrit
-    temp_nc_tot = ntot - nv_tot
-    temp_ntot = ntot
-
-    ! need to fix these temp variables so that they exactly match what was
-    ! originally inputted into the routine (Which is commented out in the main
-    ! section of input.f90, so go look at it.
     n_incl_rows = size(incl_array, 1)
-    last_v = temp_nv_tot
-    first_c = temp_ntot - temp_nc_tot + 1
+    last_v = nv_tot
+    first_c = nv_tot + ncrit + 1
+  
     search_v = 0
     search_c = 0
+    vr_place = 0
+    cr_place = 0
     nc_incl = 0
     nv_incl = 0
-
-    if (first_c .le. last_v) then
-      ncrit_incl = last_v - first_c + 1
-    else
-      ncrit_incl = 0
-    end if
-
+    ncrit_incl = 0
+    ntot_temp = ntot
+    nv_tot_temp = nv_tot
+    ncrit_temp = ncrit
+  
     do i = 1, n_incl_rows
-      if (incl_array(i, 2) .le. last_v .and. incl_array(i, 2) .le. last_v) then
-        nv_incl = nv_incl + incl_array(i, 2) - incl_array(i, 1) + 1
-       else if (incl_array(i, 2) .ge. last_v .and. incl_array(i, 2) .le. last_v) then
-      else
+      if (incl_array(i,2) .le. last_v .and. incl_array(i,1) .le. last_v) then
+        ! then add in the whole row range:
+        nv_incl = nv_incl + incl_array(i,2) - incl_array(i,1) + 1
+        search_v = incl_array(i,2)
+        vr_place = incl_array(i,2) - incl_array(i,1) + 1       
+        ! The last v is somewhere in the middle of a row range:
+      else if (incl_array(i,2) .ge. last_v .and. incl_array(i,1) .le. last_v) then
         search_v = incl_array(i,1)
-        do while (search_v .le. temp_nv_tot)
+        do while (search_v .le. last_v)
           nv_incl = nv_incl + 1
           search_v = search_v + 1
-        end do ! while
+          vr_place = vr_place + 1
+        end do
+        search_v = search_v - 1
+      else
+        cycle
       end if
+      v_place = i
     end do
-
+  
     do i = 1, n_incl_rows
-      ir = n_incl_rows + 1 - i ! index-reverse
-      if (incl_array(ir, 1) .ge. first_c .and. incl_array(ir, 2) .ge. first_c) then
-        nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
-      else if (incl_array(ir, 1) .le. first_c .and. &
+      ir = n_incl_rows + 1 - i
+      if (incl_array(ir, 1) .ge. first_c .and. & 
         incl_array(ir, 2) .ge. first_c) then
-        search_c = incl_array(ir, 1) 
         nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
+        search_c = incl_array(ir,1)
+        cr_place = 1
+      else if (incl_array(ir,1) .le. first_c .and. &
+        incl_array(ir,2) .ge. first_c) then
+        search_c = incl_array(ir, 1)
+        nc_incl = nc_incl + incl_array(ir,2) - incl_array(ir,1) + 1
         do while (search_c .lt. first_c)
           search_c = search_c + 1
           nc_incl = nc_incl - 1
+          cr_place = cr_place + 1
         end do
-        else
-          cycle
+        cr_place = cr_place + incl_array(ir,1)
+      else
+        cycle
       end if
+      c_place = ir ! pretty sure we can move both c_place and v_place to outside
+      ! the whole thing because it just needs the last (i.e. after end do, c_place
+      ! = ir)
     end do
+    
 
-    ! OAH: need a test case that has partially occupied bands
-    ! to ensure that this indexing is done correctly for that case
-    ! Also, need to set in inread.f90 that the default n_excl and
-    ! the default nv_excl are 0 (will need to chagne intent out to
-    ! intent inout for these when the time comes)
-    !OAH: these guys below are double-counting...
-    if (peinf%inode.eq.0)then
-      write(*,*) "nv_incl: ", nv_incl
-      write(*,*) "ncrit_incl: ", ncrit_incl
-      write(*,*) "nc_incl:", nc_incl
+    if (ncrit .ne. 0) then
+      start_ncrit = vr_place ! row to start looking
+      end_ncrit = cr_place - 1
+    !  last_ncrit = search_c - 1 ! the highest possible ncrit value
+    !  first_ncrit = search_v + 1
+      first_ncrit = nv_tot + 1
+      last_ncrit = first_ncrit + ncrit - 1
+      do i = v_place, c_place ! go through the in-between
+         ! row contains no ncrits
+         if (incl_array(i,2) .lt. first_ncrit &
+           .or. incl_array(i,1) .gt. last_ncrit) then
+           cycle
+         ! In-between range situation:
+    !     else if (incl_array(i,2).le.last_ncrit &
+    !       .and. incl_array(i,1) .ge. first_ncrit) then
+    !       search_ncrit_below = incl_array(i,1)
+    !       search_ncrit_above = incl_array(i,2)
+    !       do while (search_ncrit_below .lt. first_ncrit)
+    !         search_ncrit_below = search_ncrit_below + 1
+    !       end do
+    !       do while (search_ncrit_above .gt. last_ncrit)
+    !         search_ncrit_above = search_ncrit_above - 1
+    !       end do
+    !       ! Don't need to add ncrit to itself here because if this situation
+    !       ! occurs, then all ncrits were in this one row anyway
+    !       ncrit_incl = search_ncrit_above - search_ncrit_below + 1
+         ! Row only contains crits:
+         else if (incl_array(i,2) .ge. last_ncrit &
+           .and. incl_array(i,1).le. first_ncrit) then
+           ncrit_incl = ncrit
+         else if (incl_array(i,1) .ge. first_ncrit &
+           .and. incl_array(i,2) .le. last_ncrit) then
+           ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+         ! RHS situation:
+         else if (incl_array(i,1).le.first_ncrit &
+           .and. incl_array(i,2).le.last_ncrit) then
+           ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) & 
+             - vr_place + 1 ! maybe +1?
+         else if (incl_array(i,1) .ge. first_ncrit &
+           .and. incl_array(i,2) .gt. last_ncrit) then
+           c_range = incl_array(i,2)-cr_place+1
+           ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
+         else
+           cycle
+         end if
+     end do
+    else
+      ncrit_excl = 0
     end if
-    nv_incl = nv_incl - ncrit_incl
-    n_excl = ntot - nv_incl - nc_incl !- ncrit_incl ! - ncrit_incl
-    ntot = nv_incl + nc_incl ! - ncrit_incl
-    ncrit = ncrit_incl
-    !nc_tot = nc_incl
-    nv_excl = nv_tot - nv_incl
-    nv_tot = nv_incl
-   ! OAH: try this:
-   ! nv_excl = nv_tot - nv_incl
+
     if (nv_incl .eq. 0) then
       if (peinf%inode.eq.0) then
         call die('no valence bands specified in band_ranges.', &
@@ -1767,14 +1829,22 @@ contains
       end if
     end if
 
-    
-    if (peinf%inode.eq.0) then
-      write(*,*) "nv_incl = ", nv_tot ! nv_incl
-      write(*,*) "nc_incl = ", nc_incl
-      write(*,*) "ntot = ", ntot
-      write(*,*) "n_excl = ", n_excl
-      write(*,*) "nv_excl = ", nv_excl
-    end if
+    nv_tot = nv_incl
+    ncrit = ncrit_incl
+    ntot = nv_incl + nc_incl + ncrit_incl
+    n_excl = ntot_temp - ntot
+    nv_excl = nv_tot_temp - nv_incl
+    ncrit_excl = ncrit_temp - ncrit_incl
+
+!    if (peinf%inode.eq.0) then
+!      write(*,*) "nv_incl = ", nv_tot ! nv_incl
+!      write(*,*) "nc_incl = ", nc_incl
+!      write(*,*) "ntot = ", ntot
+!      write(*,*) "n_excl = ", n_excl
+!      write(*,*) "nv_excl = ", nv_excl
+!      write(*,*) "ncrit incl = ", ncrit
+!      write(*,*) "ncrit excl = ", ncrit_excl
+!    end if
 
   end subroutine determine_n_incl
 

@@ -574,7 +574,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
     count(2) = ngktot
     count(3) = kp%nspin*kp%nspinor
     count(4) = bands_read
-    write(*,*) "creating memspace."
     call h5screate_simple_f(4, count, memspace, error)
     do_read = bands_read>0.and.(peinf%inode==reader.or.comm_style==0)
 
@@ -593,7 +592,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
         call H5sselect_none_f(memspace,error)
       endif
   
-      write(*,*) "selecting first dataspace hyperslab"
       call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F, offset, count, error)
       if (.not.do_read) then
         call H5sselect_none_f(dataspace,error)
@@ -602,7 +600,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
       count_out = count
       offset_out=0
       count_out(4) = incl_array(1,2) - incl_array(1,1) + 1
-      write(*,*) "selecting first memspace hyperslab"
       call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, offset_out, &
         count_out, error)
       offset_out(4) = count_out(4)
@@ -610,11 +607,9 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
         if(incl_array(i,1).ne. -1) then
           offset(4) = incl_array(i,1) - 1
           count(4) = incl_array(i,2) - incl_array(i,1) + 1
-          write(*,*) "looping to select dataspace slab"
           call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
             count, error)
           count_out(4) = incl_array(i, 2) - incl_array(i, 1) + 1
-          write(*,*) "looping to select memspace slab"
           call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
             count_out, error)
           offset_out(4) = offset_out(4) + count_out(4)
@@ -633,11 +628,9 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
       !if (peinf%inode==reader) write(6,'(a)') '[2]'
       call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
       !if (peinf%inode==reader) write(6,'(a)') '[3]'
-      write(*,*) "calling actual parallel read function"
       call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace, xfer_prp=plist_id)
       !if (peinf%inode==reader) write(6,'(a)') '[4]'
       call h5pclose_f(plist_id, error)
-      write(*,*) "end of excitement"
       !if (peinf%inode==reader) write(6,'(a)') '[5]'
 #else
       call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace)
