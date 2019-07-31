@@ -1573,7 +1573,7 @@ contains
 
 !================================================================================
 !
-! subroutine make_vc_incl_array   By OAH             Last Modified 06/27/2019
+! subroutine make_vc_incl_array   By OAH             Last Modified 07/31/2019
 !
 ! A subroutine for band-inclusion functionality
 !
@@ -1610,16 +1610,12 @@ contains
     integer :: nrows ! total number of rows in incl_array
     integer :: crows ! index of start of conduction band
     integer :: find_v
+    integer :: find_c, ccount
     
     vcount = 0
     j = 0
     nrows = size(incl_array, 1)
 
-!    if (peinf%inode.eq.0) then
-!      write(*,*) "nvalence: ", nvalence
-!      write(*,*) "nconduction: ", nconduction
-!      write(*,*) "ncrit: ", ncrit
-!    end if
     ! Figure out the global incl_array_v, incl_array_c.
     ! First do while gets the index (j) of the row that contains both valence
     ! and conduction bands. The remaining logic splits the array accordingly.
@@ -1632,41 +1628,33 @@ contains
     ! If the last band in the range equals nvalence, then we take this row and
     ! all rows above it and assign to incl_array_v, and the rest to
     ! incl_array_c. This situation will occur if frontier bands are excluded.
-!    if (vcount .eq. nvalence) then
-!      allocate(incl_array_c(crows, 2))
-!      allocate(incl_array_v(j, 2))
-!      incl_array_v = incl_array(1:j, :)
-!      incl_array_c = incl_array(j+1:nrows, :)
-!    ! Otherwise, the "split" between v and c occurs somewhere inside a range of
-!    ! band values. We determine where the split occurs, then assign v, c
-!    ! incl_arrays accordingly.
-!    else
-      do while (vcount .ne. nvalence)
-        vcount = vcount - 1
-        find_v = find_v - 1
-      end do ! while
-      allocate(incl_array_v(j, 2))
-      allocate(incl_array_c(crows+1, 2))
-      incl_array_v = incl_array(1:j, :)
-      incl_array_c = incl_array(j:nrows, :)
-      incl_array_v(j, 2) = find_v
-      incl_array_c(1, 1) = find_v + 1
-!    end if ! vcount .eq. nvalence
 
-    ! actually, don't change this here. Change it only in the wfn_io file...
-    ! and compare and see if it gives the same thing
-    incl_array_c(1,1) = incl_array_c(1,1) - ncrit
-!    if (peinf%inode.eq.0) then
-!      write(*,*) "incl_array_v:"
-!      do i = 1, size(incl_array_v,1)
-!        write(*,*) (incl_array_v(i,j), j=1,2)
-!      end do
-!      write(*,*)
-!      write(*,*) "incl_array_c:"
-!      do i = 1, size(incl_array_c,1)
-!        write(*,*) (incl_array_c(i,j), j=1,2)
-!      end do
-!    end if
+    do while (vcount .ne. nvalence)
+      vcount = vcount - 1
+      find_v = find_v - 1
+    end do ! while
+    allocate(incl_array_v(j, 2))
+    incl_array_v = incl_array(1:j, :)
+    incl_array_v(j, 2) = find_v
+
+    ccount = 0
+    j = size(incl_array, 1)
+    k = 0
+    do while (ccount .lt. nconduction) ! maybe + ncrit, need to check
+      ccount= ccount + incl_array(j,2) - incl_array(j,1) + 1
+      j = j-1
+      k = k + 1
+    end do
+    j = j + 1
+    find_c = incl_array(j,1)
+    do while (ccount.ne.nconduction)
+      find_c = find_c + 1
+      ccount = ccount-1
+    end do
+
+    allocate(incl_array_c(k, 2))
+    incl_array_c = incl_array(j:, :)
+    incl_array_c(1,1) = find_c
 
   end subroutine make_vc_incl_array
 
