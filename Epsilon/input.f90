@@ -1591,12 +1591,6 @@ contains
 !===============================================================================
   subroutine make_vc_incl_array(incl_array, nvalence, nconduction, &
              ncrit, incl_array_v, incl_array_c)
-           ! OAH 7/22: take ncrit as input, and adjust the nconduction in this
-           ! way. Have whatever the first index of nconduction is be subtracted
-           ! back by ncrit, which should give the proper starting value. And see
-           ! if this works. May need to then adjust my_incl_array subroutine,
-           ! but current problem may be that ncrit is not getting included in
-           ! the conduction inclusion array, and therefore not read in properly.
     
     integer, intent(in) :: incl_array(:,:)
     integer, intent(in) :: nvalence ! nv_incl
@@ -1608,7 +1602,6 @@ contains
     integer :: vcount
     integer :: i, j, k
     integer :: nrows ! total number of rows in incl_array
-    integer :: crows ! index of start of conduction band
     integer :: find_v
     integer :: find_c, ccount
     
@@ -1616,19 +1609,13 @@ contains
     j = 0
     nrows = size(incl_array, 1)
 
-    ! Figure out the global incl_array_v, incl_array_c.
     ! First do while gets the index (j) of the row that contains both valence
     ! and conduction bands. The remaining logic splits the array accordingly.
     do while (vcount .lt. nvalence)
       j = j + 1
       vcount = vcount + incl_array(j,2) - incl_array(j, 1) + 1
     end do ! while
-    crows = nrows - j
     find_v = incl_array(j, 2)
-    ! If the last band in the range equals nvalence, then we take this row and
-    ! all rows above it and assign to incl_array_v, and the rest to
-    ! incl_array_c. This situation will occur if frontier bands are excluded.
-
     do while (vcount .ne. nvalence)
       vcount = vcount - 1
       find_v = find_v - 1
@@ -1637,6 +1624,10 @@ contains
     incl_array_v = incl_array(1:j, :)
     incl_array_v(j, 2) = find_v
 
+    ! Now doing the same for the conduction values.
+    ! Splitting up so that the valence matrix gets created and then the
+    ! conduciton matrix separately gets created ensures that the partially
+    ! occupied bands are properly accounted for.
     ccount = 0
     j = size(incl_array, 1)
     k = 0
@@ -1755,30 +1746,16 @@ contains
 
     if (ncrit .ne. 0) then
       start_ncrit = vr_place ! row to start looking
-      end_ncrit = cr_place - 1
-    !  last_ncrit = search_c - 1 ! the highest possible ncrit value
-    !  first_ncrit = search_v + 1
+      end_ncrit = cr_place - 1 ! row to stop looking
       first_ncrit = nv_tot + 1
       last_ncrit = first_ncrit + ncrit - 1
-      do i = v_place, c_place ! go through the in-between
-         ! row contains no ncrits
+      ! There are four scenarios for how the partially occupied bands can be
+      ! sitting within a row in the inclusion matrix:
+      do i = v_place, c_place 
+         ! row contains no crits
          if (incl_array(i,2) .lt. first_ncrit &
            .or. incl_array(i,1) .gt. last_ncrit) then
            cycle
-         ! In-between range situation:
-    !     else if (incl_array(i,2).le.last_ncrit &
-    !       .and. incl_array(i,1) .ge. first_ncrit) then
-    !       search_ncrit_below = incl_array(i,1)
-    !       search_ncrit_above = incl_array(i,2)
-    !       do while (search_ncrit_below .lt. first_ncrit)
-    !         search_ncrit_below = search_ncrit_below + 1
-    !       end do
-    !       do while (search_ncrit_above .gt. last_ncrit)
-    !         search_ncrit_above = search_ncrit_above - 1
-    !       end do
-    !       ! Don't need to add ncrit to itself here because if this situation
-    !       ! occurs, then all ncrits were in this one row anyway
-    !       ncrit_incl = search_ncrit_above - search_ncrit_below + 1
          ! Row only contains crits:
          else if (incl_array(i,2) .ge. last_ncrit &
            .and. incl_array(i,1).le. first_ncrit) then
@@ -1786,11 +1763,12 @@ contains
          else if (incl_array(i,1) .ge. first_ncrit &
            .and. incl_array(i,2) .le. last_ncrit) then
            ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
-         ! RHS situation:
+           ! RHS situation [startband-not crit, endband-is crit]
          else if (incl_array(i,1).le.first_ncrit &
            .and. incl_array(i,2).le.last_ncrit) then
            ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) & 
-             - vr_place + 1 ! maybe +1?
+             - vr_place + 1 
+           ! LHS situation [startband-is crit, endband-not crit]
          else if (incl_array(i,1) .ge. first_ncrit &
            .and. incl_array(i,2) .gt. last_ncrit) then
            c_range = incl_array(i,2)-cr_place+1
@@ -1817,22 +1795,13 @@ contains
       end if
     end if
 
+    ! Set the output values
     nv_tot = nv_incl
     ncrit = ncrit_incl
     ntot = nv_incl + nc_incl + ncrit_incl
     n_excl = ntot_temp - ntot
     nv_excl = nv_tot_temp - nv_incl
     ncrit_excl = ncrit_temp - ncrit_incl
-
-!    if (peinf%inode.eq.0) then
-!      write(*,*) "nv_incl = ", nv_tot ! nv_incl
-!      write(*,*) "nc_incl = ", nc_incl
-!      write(*,*) "ntot = ", ntot
-!      write(*,*) "n_excl = ", n_excl
-!      write(*,*) "nv_excl = ", nv_excl
-!      write(*,*) "ncrit incl = ", ncrit
-!      write(*,*) "ncrit excl = ", ncrit_excl
-!    end if
 
   end subroutine determine_n_incl
 

@@ -76,6 +76,7 @@ subroutine inread(pol,vwfn,cwfn)
   occ_set=.false.
   vwfn%nband=0
   cwfn%nband=0
+  cwfn%band_ranges=.false.
   vwfn%ncore_excl=0
   pol%freq_dep=0
   pol%freq_dep_method=2
@@ -209,6 +210,7 @@ subroutine inread(pol,vwfn,cwfn)
             qpt_read(1:3,ii)=qpt_read(1:3,ii)/div
             qflags(ii) = itestq
           elseif(trim(blockword).eq.'band_ranges') then
+            cwfn%band_ranges=.true.
             nband_ranges=ii
             read(line,*,iostat=iostat) incl_start(ii), incl_end(ii)
           else
@@ -519,6 +521,9 @@ subroutine inread(pol,vwfn,cwfn)
     do i = 1, nband_ranges
       write(*,*) (cwfn%incl_array(i,j), j = 1,2)
     end do
+  end if
+  if (cwfn%band_ranges .and. .not. pol%os_hdf5) then
+    call die('The band ranges feature must be used with hdf5 enabled',only_root_writes =.true.)
   end if
 !#END_INTERNAL_ONLY
 

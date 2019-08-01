@@ -169,6 +169,7 @@ module typedefs_m
   !> FHJ: conduction WFNs for 1 particular kpt and all bands (!) the processor owns
   type conduction_wfns
     integer :: nband  !< This is actually the number of valence+conduction bands!
+    logical :: band_ranges
     integer, allocatable :: incl_array(:,:)
     !> Describes ALL included bands, both valence and conduction.
     integer, allocatable :: incl_array_c(:,:) !< describes all included conduction bands
@@ -486,6 +487,7 @@ module typedefs_m
     SCALAR, pointer :: gme(:,:,:,:,:,:)
     SCALAR, pointer :: chi(:,:,:)
     integer :: ncrit
+    integer :: ncrit_excl
     real(DP) :: efermi
     real(DP) :: efermi_input
     logical :: rfermi
