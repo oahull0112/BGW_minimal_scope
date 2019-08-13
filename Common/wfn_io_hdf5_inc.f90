@@ -546,7 +546,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   ! single band, including G-vectors from all k-points.
   max_bands_read = min(nbownmax, &
     int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)))
-! OAH: for trying to work out the band-read wrapping. Remove when done.
   if (peinf%inode.eq.0) then
     write(*,*) "size of single band:"
     write(*,*) int(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)
@@ -567,138 +566,163 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   !write(6,*) 'max_bands_read', max_bands_read
   SAFE_ALLOCATE(wfndata, (SCALARSIZE, ngktot, kp%nspin*kp%nspinor, max_bands_read))
 
-  !FIXME: OAH: inclusion functionality works as long as the bands read in dont
-  !exceed the max number of bands to read in.
 
-  first_read=.true.
-  nrows=size(incl_array,1)
-  current_k=incl_array(1,3)
-  end_k=incl_array(nrows,3)
-  allocate(k_count(end_k))
-  allocate(nrow_chunk(end_k))
-  nrow_chunk=0
-  k_count=0
-  do ir=1,nrows ! of the inclusion array
-    current_range=incl_array(ir,2)-incl_array(ir,1)+1
-    current_k=incl_array(ir,3)
-    if(incl_array(ir,1).ne.(-1)) then
-      k_count(current_k)=k_count(current_k) +current_range
-      nrow_chunk(current_k)=nrow_chunk(current_k)+1 ! number of inclusion array
-      ! rows in the current k chunk
-    end if
-  end do
-
-  if (peinf%inode.eq.1) then
-    write(*,*)
-    write(*,*) "incl_array:"
-    do i=1,size(incl_array,1)
-      write(*,*)(incl_array(i,ir),ir=1,3)
-    end do
-    write(*,*) "nrow_chunk: ", nrow_chunk(:)
-    write(*,*) "k_count: ", k_count
-  end if
-
-  ir=0
-  ib=1
-  ibb=1
-  current_k=incl_array(1,3)
-  do ik=1,end_k ! the number of reads to do
-    ! This block is for each READ
-    nband=k_count(ik) ! the number of bands in the read
-    count(1) = SCALARSIZE
-    count(2) = ngktot
-    count(3) = kp%nspin*kp%nspinor
-    ! Call nband "bands_read" to match with the original
-    count(4) = nband 
-    call h5screate_simple_f(4, count, memspace, error)
-    ! now we have the memspace to place our hyperslabs
-    ! May need to look "one ahead" for current_k...
-    ! i.e may need a "next_k" instead
-    offset(1)=0
-    offset(2)=0
-    offset(3)=0
-    ! this gives the number of inclusion array rows that belong to this
-    ! particular read
-    if (peinf%inode.eq.1) then
-      write(*,*) " "
-      write(*,*) "k-block:"
-      write(*,*) "ik: ", ik
-      write(*,*) "end_k: ", end_k
-      write(*,*) "nband: ", nband
-    end if
-
-    ! This block is for each band in a given read:
-    do i=1,nrow_chunk(ik)
-      if (peinf%inode.eq.1) then
-        write(*,*) " "
-        write(*,*) "nrow_chunk(ik): ", nrow_chunk(ik)
-        write(*,*) "first_read: ", first_read
-        write(*,*) "incl_array(ib, :): ", incl_array(ib, :)
-        write(*,*) "ib: ", ib
+  ! I'm pretty sure all processors need to make a read call, which is why in the
+  ! default code there's essentially a "read nothing" if not a reader. Need to
+  ! mimic this. I put into input.f90 to give a default -1 -1 if no bands are
+  ! owned. Now can either expand on this here to make a read, or try to rework
+  ! it so that it mirrors the defaultcode more closely (with a "read but readn
+  ! othing" call) and remove the change from the make_my_incl_array routine.
+  write(*,*)"node: ", peinf%inode, "do_read: ", do_read
+  if(do_read) then
+    write(*,*)"node: ", peinf%inode, "do_read: ", do_read, "past do_read"
+    first_read=.true.
+    nrows=size(incl_array,1)
+    current_k=incl_array(1,3)
+    end_k=incl_array(nrows,3)
+    allocate(k_count(end_k))
+    allocate(nrow_chunk(end_k))
+    nrow_chunk=0
+    k_count=0
+    do ir=1,nrows ! of the inclusion array
+      current_range=incl_array(ir,2)-incl_array(ir,1)+1
+      current_k=incl_array(ir,3)
+      if(incl_array(ir,1).ne.(-1)) then
+        k_count(current_k)=k_count(current_k) +current_range
+        nrow_chunk(current_k)=nrow_chunk(current_k)+1 ! number of inclusion array
+        ! rows in the current k chunk
       end if
-      if (first_read.and.incl_array(ib,1).ne.(-1)) then ! maybe change this to:
-        ! if (incl_array(i,3) .ne. incl_array(i-1,3) .or. i=1) then
-        ! this might give trouble in the i=1 case...
-        first_read=.false.
-        offset(4)=incl_array(ib,1)-1
-        count(4)=incl_array(ib,2)-incl_array(ib,1)+1
-        call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F,&
-          offset, count, error)
-        count_out = count
-       ! offset_out=incl_array(ib,1)-1
-        offset_out=0 ! this may need to be offset_out=ib-1
-        call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, &
-          offset_out, count_out, error)
+    end do
+  
+    ! Is it hanging when there's only one band to read in on the tail-end?
+    if (peinf%inode.eq.0) then
+      write(*,*)
+      write(*,*) "incl_array:"
+      do i=1,size(incl_array,1)
+        write(*,*)(incl_array(i,ir),ir=1,3)
+      end do
+      write(*,*) "nrow_chunk: ", nrow_chunk(:)
+      write(*,*) "k_count: ", k_count
+    end if
+  
+    ir=0
+    ib=1
+    ibb=1
+    current_k=incl_array(1,3)
+    do ik=1,end_k ! the number of reads to do
+      ! This block is for each READ
+      nband=k_count(ik) ! the number of bands in the read
+    !  SAFE_ALLOCATE(wfndata, (SCALARSIZE, ngktot, kp%nspin*kp%nspinor, nband))
+      count(1) = SCALARSIZE
+      count(2) = ngktot
+      count(3) = kp%nspin*kp%nspinor
+      count(4) = nband 
+      call h5screate_simple_f(4, count, memspace, error)
+      ! now we have the memspace to place our hyperslabs
+      offset(1)=0
+      offset(2)=0
+      offset(3)=0
+      if (peinf%inode.eq.0) then
+        write(*,*) " "
+        write(*,*) "k-block:"
+        write(*,*) "ik: ", ik
+        write(*,*) "end_k: ", end_k
+        write(*,*) "nband: ", nband
+      end if
+  
+      ! This block is for each band in a given read:
+      do i=1,nrow_chunk(ik)
         if (peinf%inode.eq.0) then
           write(*,*) " "
-          write(*,*) "first_read block:"
-          write(*,*)"ik: ", ik
-          write(*,*)"incl_array(ib,:) ", incl_array(ib,:)
-          write(*,*) "FOR THIS CALL: "
-          write(*,*) "count: ", count
-          write(*,*) "count_out: ", count_out
-          write(*,*) "offset: ", offset
-          write(*,*) "offset_out: ", offset_out
-          write(*,*) "ib: ", ib 
+          write(*,*) "nrow_chunk(ik): ", nrow_chunk(ik)
+          write(*,*) "first_read: ", first_read
+          write(*,*) "incl_array(ib, :): ", incl_array(ib, :)
+          write(*,*) "ib: ", ib
         end if
-        offset_out(4)=count_out(4)
-        ib=ib+1
-      else if (.not.first_read.and.incl_array(ib,1).ne.(-1))then
-        if (peinf%inode.eq.1) then
-          write(*,*) "we made it here...."
-          write(*,*) " ib: ", ib
+        if (first_read.and.incl_array(ib,1).ne.(-1)) then ! maybe change this to:
+          ! if (incl_array(i,3) .ne. incl_array(i-1,3) .or. i=1) then
+          ! this might give trouble in the i=1 case...
+          first_read=.false.
+          offset(4)=incl_array(ib,1)-1
+          count(4)=incl_array(ib,2)-incl_array(ib,1)+1
+          call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F,&
+            offset, count, error)
+          count_out = count
+         ! offset_out=incl_array(ib,1)-1
+          offset_out=0 ! this may need to be offset_out=ib-1
+          call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, &
+            offset_out, count_out, error)
+          if (peinf%inode.eq.0) then
+            write(*,*) " "
+            write(*,*) "first_read block:"
+            write(*,*)"ik: ", ik
+            write(*,*)"incl_array(ib,:) ", incl_array(ib,:)
+            write(*,*) "FOR THIS CALL: "
+            write(*,*) "count: ", count
+            write(*,*) "count_out: ", count_out
+            write(*,*) "offset: ", offset
+            write(*,*) "offset_out: ", offset_out
+            write(*,*) "ib: ", ib 
+          end if
+          offset_out(4)=count_out(4)
+          ib=ib+1
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 1"
+          end if
+        else if (.not.first_read.and.incl_array(ib,1).ne.(-1))then
+          if (peinf%inode.eq.0) then
+            write(*,*) "we made it here...."
+            write(*,*) " ib: ", ib
+          end if
+          offset(4)=incl_array(ib,1)-1
+          count(4)=incl_array(ib,2)-incl_array(ib,1)+1
+          call h5sselect_hyperslab_f(dataspace,H5S_SELECT_OR_F,offset,count,error)
+          count_out(4)=incl_array(ib,2)-incl_array(ib,1)+1
+          call h5sselect_hyperslab_f(memspace,H5S_SELECT_OR_F,offset_out,count_out,error)
+          offset_out(4)=offset_out(4)+count_out(4)
+          ib=ib+1
+        else
+          ib = ib +1
         end if
-        offset(4)=incl_array(ib,1)-1
-        count(4)=incl_array(ib,2)-incl_array(ib,1)+1
-        call h5sselect_hyperslab_f(dataspace,H5S_SELECT_OR_F,offset,count,error)
-        count_out(4)=incl_array(ib,2)-incl_array(ib,1)+1
-        call h5sselect_hyperslab_f(memspace,H5S_SELECT_OR_F,offset_out,count_out,error)
-        offset_out(4)=offset_out(4)+count_out(4)
-        ib=ib+1
-      else
-        ! cycle? continue?
-        ! not sure if we need this:
-        ib = ib +1
-      end if
-
-    end do ! i=1,nrows
-    call MPI_Barrier(MPI_COMM_WORLD, error)
-    ! Now need to make the actual read call:
-    call h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error)
-    call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
-    call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:),count,error,&
-      memspace, dataspace, xfer_prp=plist_id)
-    call h5pclose_f(plist_id, error)
-
-    ! And now reset first_read and go do the next read:
-    first_read=.true.
-    do is = 1, kp%nspin*kp%nspinor
-      wfnsout(:,is,ibb:ibb+nband-1) = &
-        SCALARIFY2(wfndata(1,:,is,1:nband),wfndata(2,:,is,1:nband))
-    enddo
-    ibb=ibb+nband
-
-  end do ! ik=1,end_k
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 2"
+          end if
+  
+      end do ! i=1,nrows
+  
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 3"
+          end if
+      call h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error)
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 3.1"
+          end if
+      call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 3.2"
+          end if
+      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:),count,error,&
+        memspace, dataspace, xfer_prp=plist_id)
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 3.3"
+          end if
+      call h5pclose_f(plist_id, error)
+  
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 4"
+          end if
+      ! And now reset first_read and go do the next read:
+      first_read=.true.
+      do is = 1, kp%nspin*kp%nspinor
+        wfnsout(:,is,ibb:ibb+nband-1) = &
+          SCALARIFY2(wfndata(1,:,is,1:nband),wfndata(2,:,is,1:nband))
+      enddo
+      ibb=ibb+nband
+          if (peinf%inode.eq.0) then
+            write(*,*) "am I hanging here? 5"
+          end if
+      end do ! ik=1,end_k
+  end if ! do read
 
 #ifdef MPI
   if (comm_style==1.and.nbownactual>0) then

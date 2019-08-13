@@ -259,8 +259,8 @@ contains
          peinf%nvownactual, vwfn%my_incl_array_v)
     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
          peinf%ncownactual, cwfn%my_incl_array_c)
-    call make_my_read_ranges(vwfn%my_incl_array_v, vwfn%my_read_ranges_v)
-    call make_my_read_ranges(cwfn%my_incl_array_c, cwfn%my_read_ranges_c)
+    call make_my_read_ranges(vwfn%my_incl_array_v, kp, vwfn%my_read_ranges_v)
+    call make_my_read_ranges(cwfn%my_incl_array_c, kp, cwfn%my_read_ranges_c)
     if (peinf%inode==0) then
       write(*,*) "vwfn%nband: ", vwfn%nband
       write(*,*) "pol%ncrit: ", pol%ncrit
@@ -1855,7 +1855,12 @@ contains
 
     nrows = size(incl_array, 1)
     ncols = 2 ! fixed by definition of inclusion array
-    allocate(my_incl_array(nownactual, ncols)) ! allocate worst case scenario
+    if (nownactual.eq.0)then
+      allocate(my_incl_array(1, ncols))
+      my_incl_array=-1
+    else
+      allocate(my_incl_array(nownactual, ncols)) ! allocate worst case scenario
+    end if
     my_incl_array = -1 ! -1 if row is extra
     init = 0
     next_band = incl_array(1,1)
@@ -1913,13 +1918,16 @@ contains
 ! particular range ofincluded bands belongs to.
 !
 !===============================================================================
-  subroutine make_my_read_ranges(inc_array, read_ranges_incl)
+  subroutine make_my_read_ranges(inc_array, kp, read_ranges_incl)
 
     integer, intent(in) :: inc_array(:,:)
+    type(kpoints), intent(in) :: kp
     integer, allocatable, intent(out) :: read_ranges_incl(:,:)
     integer, allocatable :: incl_array(:,:)
     integer, allocatable :: incl_array2(:,:)
     integer :: max_number_bands ! max bands to read in at once
+    integer :: ngktot
+    integer :: max_bytes_read = 536870912
 
     integer :: cbn ! current band number
     integer :: i, j, k, nrows
@@ -1927,7 +1935,14 @@ contains
 
     nrows = size(inc_array, 1)
 
-    max_number_bands=5 ! remove when done testing
+    max_number_bands=3 ! remove when done testing
+
+    ngktot = SUM(kp%ngk)
+!    max_number_bands = &
+!    int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
+    max_number_bands=3
+
+
     incl_array = inc_array 
     incl_array2 = inc_array
     i=1 ! index of the inclusion array
