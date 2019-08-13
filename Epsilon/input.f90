@@ -239,8 +239,10 @@ contains
     call MPI_Bcast(pol%ncrit, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
 #endif
 !#BEGIN_INTERNAL_ONLY
-    call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
+    if (cwfn%band_ranges) then
+      call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
       pol%ncrit, cwfn%n_excl, vwfn%nv_excl, pol%ncrit_excl)
+    end if
    ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
    !   pol%ncrit, cwfn%n_excl, vwfn%nv_excl)
 !#END_INTERNAL_ONLY
@@ -257,6 +259,8 @@ contains
          peinf%nvownactual, vwfn%my_incl_array_v)
     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
          peinf%ncownactual, cwfn%my_incl_array_c)
+    call make_my_read_ranges(vwfn%my_incl_array_v, vwfn%my_read_ranges_v)
+    call make_my_read_ranges(cwfn%my_incl_array_c, cwfn%my_read_ranges_c)
     if (peinf%inode==0) then
       write(*,*) "vwfn%nband: ", vwfn%nband
       write(*,*) "pol%ncrit: ", pol%ncrit
@@ -276,10 +280,20 @@ contains
         write(*,*) (vwfn%my_incl_array_v(i_oh,j_oh), j_oh = 1, &
         size(vwfn%my_incl_array_v,2))
       end do
+      write(*,*) "my valence read ranges array:"
+      do i_oh = 1, size(vwfn%my_read_ranges_v, 1)
+        write(*,*) (vwfn%my_read_ranges_v(i_oh,j_oh), j_oh = 1, &
+        size(vwfn%my_read_ranges_v,2))
+      end do
       write(*,*) "my conduction inclusion array:"
       do i_oh = 1, size(cwfn%my_incl_array_c, 1)
         write(*,*) (cwfn%my_incl_array_c(i_oh,j_oh), j_oh = 1, &
         size(cwfn%my_incl_array_c,2))
+      end do
+      write(*,*) "my conduction read ranges array:"
+      do i_oh = 1, size(cwfn%my_read_ranges_c, 1)
+        write(*,*) (cwfn%my_read_ranges_c(i_oh,j_oh), j_oh = 1, &
+        size(cwfn%my_read_ranges_c,2))
       end do
       write(6,'(/1x,a)') 'Calculation parameters, round two:'
       write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
@@ -1218,7 +1232,12 @@ contains
     ib_first = 0
     if (peinf%nvownactual>0) ib_first = peinf%invindexv(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%nvownactual))
-    call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
+
+    ! OAH: need to change this call and the conduction call to
+    ! read_hdf5_bands_block so that it uses the updated method
+  !  call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
+  !    peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
+    call read_hdf5_bands_block(file_id, kp, vwfn%my_read_ranges_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
       peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
 
 ! DVF : here we flip from hdf5 wfn ordering of indices to the `traditional` BGW ordering of indices, with
@@ -1259,8 +1278,10 @@ contains
     ib_first = 0
     if (peinf%ncownactual>0) ib_first = peinf%invindexc(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%ncownactual))
-    call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
+    call read_hdf5_bands_block(file_id, kp, cwfn%my_read_ranges_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
       peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
+   ! call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
+   !   peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
 
     call logit('Checking norms')
     ! write to conduction file
@@ -1878,5 +1899,111 @@ contains
     end do ! end loop over do_i_own
 
   end subroutine make_my_incl_array
+
+!===============================================================================
+!
+! subroutine make_my_read_ranges   By OAH             Last Modified 08/08/2019
+!
+! A subroutine for band-inclusion functionality
+!
+! Takes an inclusion array and modifies it so that no more than max_bands_read
+! bands are read at once in Common/wfn_io_hdf5_inc
+! 
+! It adds a third column to the inclusion array that says which read number a 
+! particular range ofincluded bands belongs to.
+!
+!===============================================================================
+  subroutine make_my_read_ranges(inc_array, read_ranges_incl)
+
+    integer, intent(in) :: inc_array(:,:)
+    integer, allocatable, intent(out) :: read_ranges_incl(:,:)
+    integer, allocatable :: incl_array(:,:)
+    integer, allocatable :: incl_array2(:,:)
+    integer :: max_number_bands ! max bands to read in at once
+
+    integer :: cbn ! current band number
+    integer :: i, j, k, nrows
+    integer :: nb_inchunk ! the current number of bands remaining in a read
+
+    nrows = size(inc_array, 1)
+
+    max_number_bands=5 ! remove when done testing
+    incl_array = inc_array 
+    incl_array2 = inc_array
+    i=1 ! index of the inclusion array
+    j=0 ! index rows of read_ranges_incl
+    k=0 ! index the third column of read_ranges_incl
+    nb_inchunk = max_number_bands
+
+    ! This do while loop figures out how many rows the read_ranges matrix needs
+    do while (i .le. nrows)
+      cbn=incl_array(i,2)-incl_array(i,1)+1
+      if (cbn .lt. nb_inchunk) then
+        nb_inchunk=nb_inchunk-cbn
+        i=i+1
+        j=j+1
+      else if (cbn .gt. nb_inchunk) then
+        j=j+1
+        k=k+1
+        incl_array(i,1)=incl_array(i,1)+nb_inchunk
+        nb_inchunk=max_number_bands
+      else ! cbn .eq. nb_inchunk
+        j=j+1
+        nb_inchunk=max_number_bands
+        k=k+1
+        i=i+1
+      end if
+    end do
+
+    allocate(read_ranges_incl(j, 3))
+
+    ! Now, it goes back through and fills in the values
+    ! of the read_ranges array
+    i=1 ! index of the inclusion array
+    j=1 ! index rows of read_ranges_incl
+    k=1 ! index the third column of read_ranges_incl
+    nb_inchunk = max_number_bands
+
+    do while (i .le. nrows)
+      cbn=incl_array2(i,2)-incl_array2(i,1)+1
+      if (cbn .lt. nb_inchunk) then
+        ! then copy the current row over
+        ! and move to the next row (i)
+        read_ranges_incl(j,1)=incl_array2(i,1)
+        read_ranges_incl(j,2)=incl_array2(i,2)
+        read_ranges_incl(j,3)=k
+        nb_inchunk = nb_inchunk-cbn
+        i=i+1
+        j=j+1
+      else if (cbn .gt. nb_inchunk) then
+        ! then copy the current row over
+        ! and do not increment the inclusion array
+        ! but do increment read_ranges_incl
+        read_ranges_incl(j,1)=incl_array2(i,1)
+        read_ranges_incl(j,2)=incl_array2(i,1)+nb_inchunk-1
+        read_ranges_incl(j,3)=k
+        j=j+1
+        k=k+1
+        incl_array2(i,1)=incl_array2(i,1)+nb_inchunk
+        nb_inchunk=max_number_bands
+      else ! cbn .eq. nb_inchunk
+        ! just copy over the row and reset nb_inchunk
+        ! and move to the next row
+        read_ranges_incl(j,1)=incl_array2(i,1)
+        read_ranges_incl(j,2)=incl_array2(i,2)
+        read_ranges_incl(j,3)=k
+        j=j+1
+        nb_inchunk=max_number_bands
+        k=k+1
+        i=i+1
+      end if
+    end do
+
+    do i=1,size(read_ranges_incl,1)
+      if (read_ranges_incl(i,1) .eq. (-1))then
+        read_ranges_incl(i,3)=read_ranges_incl(i-1,3)
+      end if
+    end do
+  end subroutine make_my_read_ranges
 
 end module input_m

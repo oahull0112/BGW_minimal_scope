@@ -154,6 +154,8 @@ module typedefs_m
     integer :: nv_excl !< number of excluded valence bands
     integer, allocatable :: my_incl_array_v(:,:)
     !> Describes the included valence bands for the particular mpi task
+    integer, allocatable :: my_read_ranges_v(:,:)
+    !> Describes which "chunks" of included bands can be read in at once
     integer :: ngv    !< Number of G-vectors
     integer :: idx_kp !< Idx of current kpt in kp/kpq structure
     integer, pointer :: isort(:)
@@ -176,6 +178,7 @@ module typedefs_m
     integer :: n_excl !< number of excluded bands (including valence)
     integer, allocatable :: my_incl_array_c(:,:)
     !> Describes the included conduction bands for the particular mpi task
+    integer, allocatable :: my_read_ranges_c(:,:)
     integer :: ngc    !< Number of G-vectors
     integer :: idx_kp !< Idx of current kpt in kp structure
     integer, pointer :: isort(:)
