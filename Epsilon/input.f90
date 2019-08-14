@@ -66,7 +66,7 @@ contains
     character :: fncor*32
     character :: tmpstr1*16,tmpstr2*16,tmpstr3*16,tmpstr*120
     integer :: ii,ig,jj,itran,ib
-    integer :: i_oh, j_oh
+    integer :: i_oh, j_oh, i
     integer :: error
     integer :: nrq,nrqmax,iq,ic,npools,mypool,mypoolrank
     integer :: iv,nrkq,myipe,ipool
@@ -88,9 +88,12 @@ contains
     logical :: skip_checkbz
 
     integer :: oh_i, oh_j
+    integer :: nprocs
     ! OAH: remove when done testing
 
     PUSH_SUB(input)
+
+    call MPI_COMM_SIZE(MPI_COMM_WORLD, nprocs, error)
 
 !-------------------------------
 ! SIB: Read the input file
@@ -262,39 +265,39 @@ contains
     call make_my_read_ranges(vwfn%my_incl_array_v, kp, vwfn%my_read_ranges_v)
     call make_my_read_ranges(cwfn%my_incl_array_c, kp, cwfn%my_read_ranges_c)
     if (peinf%inode==0) then
-      write(*,*) "vwfn%nband: ", vwfn%nband
-      write(*,*) "pol%ncrit: ", pol%ncrit
-      write(*,*) "cwfn%nband: ", cwfn%nband
-      write(*,*) "valence inclusion array:"
-      do i_oh = 1, size(vwfn%incl_array_v, 1)
-        write(*,*) (vwfn%incl_array_v(i_oh,j_oh), j_oh = 1, &
-        size(vwfn%incl_array_v,2))
-      end do
-      write(*,*) "conduction inclusion array:"
-      do i_oh = 1, size(cwfn%incl_array_c, 1)
-        write(*,*) (cwfn%incl_array_c(i_oh,j_oh), j_oh = 1, &
-        size(cwfn%incl_array_c,2))
-      end do
-      write(*,*) "my valence inclusion array:"
-      do i_oh = 1, size(vwfn%my_incl_array_v, 1)
-        write(*,*) (vwfn%my_incl_array_v(i_oh,j_oh), j_oh = 1, &
-        size(vwfn%my_incl_array_v,2))
-      end do
-      write(*,*) "my valence read ranges array:"
-      do i_oh = 1, size(vwfn%my_read_ranges_v, 1)
-        write(*,*) (vwfn%my_read_ranges_v(i_oh,j_oh), j_oh = 1, &
-        size(vwfn%my_read_ranges_v,2))
-      end do
-      write(*,*) "my conduction inclusion array:"
-      do i_oh = 1, size(cwfn%my_incl_array_c, 1)
-        write(*,*) (cwfn%my_incl_array_c(i_oh,j_oh), j_oh = 1, &
-        size(cwfn%my_incl_array_c,2))
-      end do
-      write(*,*) "my conduction read ranges array:"
-      do i_oh = 1, size(cwfn%my_read_ranges_c, 1)
-        write(*,*) (cwfn%my_read_ranges_c(i_oh,j_oh), j_oh = 1, &
-        size(cwfn%my_read_ranges_c,2))
-      end do
+ !     write(*,*) "vwfn%nband: ", vwfn%nband
+ !     write(*,*) "pol%ncrit: ", pol%ncrit
+ !     write(*,*) "cwfn%nband: ", cwfn%nband
+ !     write(*,*) "valence inclusion array:"
+ !     do i_oh = 1, size(vwfn%incl_array_v, 1)
+ !       write(*,*) (vwfn%incl_array_v(i_oh,j_oh), j_oh = 1, &
+ !       size(vwfn%incl_array_v,2))
+ !     end do
+ !     write(*,*) "conduction inclusion array:"
+ !     do i_oh = 1, size(cwfn%incl_array_c, 1)
+ !       write(*,*) (cwfn%incl_array_c(i_oh,j_oh), j_oh = 1, &
+ !       size(cwfn%incl_array_c,2))
+ !     end do
+ !     write(*,*) "my valence inclusion array:"
+ !     do i_oh = 1, size(vwfn%my_incl_array_v, 1)
+ !       write(*,*) (vwfn%my_incl_array_v(i_oh,j_oh), j_oh = 1, &
+ !       size(vwfn%my_incl_array_v,2))
+ !     end do
+ !     write(*,*) "my valence read ranges array:"
+ !     do i_oh = 1, size(vwfn%my_read_ranges_v, 1)
+ !       write(*,*) (vwfn%my_read_ranges_v(i_oh,j_oh), j_oh = 1, &
+ !       size(vwfn%my_read_ranges_v,2))
+ !     end do
+ !     write(*,*) "my conduction inclusion array:"
+ !     do i_oh = 1, size(cwfn%my_incl_array_c, 1)
+ !       write(*,*) (cwfn%my_incl_array_c(i_oh,j_oh), j_oh = 1, &
+ !       size(cwfn%my_incl_array_c,2))
+ !     end do
+ !     write(*,*) "my conduction read ranges array:"
+ !     do i_oh = 1, size(cwfn%my_read_ranges_c, 1)
+ !       write(*,*) (cwfn%my_read_ranges_c(i_oh,j_oh), j_oh = 1, &
+ !       size(cwfn%my_read_ranges_c,2))
+ !     end do
       write(6,'(/1x,a)') 'Calculation parameters, round two:'
       write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
       write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
@@ -303,6 +306,7 @@ contains
       write(6,'(1x,a,3(1x,i0))') '- Monkhorst-Pack q-grid for epsilon(q):', pol%qgrid
       write(6,*)
     endif
+
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -1237,6 +1241,7 @@ contains
     ! read_hdf5_bands_block so that it uses the updated method
   !  call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
   !    peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
+
     call read_hdf5_bands_block(file_id, kp, vwfn%my_read_ranges_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
       peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
 
@@ -1738,6 +1743,9 @@ contains
       end if
       v_place = i
     end do
+
+    ! v_place is supposed to be the row number of the last v band
+    ! but there is no last v band, and this is causing problems...
   
     do i = 1, n_incl_rows
       ir = n_incl_rows + 1 - i
@@ -1765,53 +1773,79 @@ contains
     end do
     
 
+    first_ncrit = nv_tot+1
     if (ncrit .ne. 0) then
-      start_ncrit = vr_place ! row to start looking
-      end_ncrit = cr_place - 1 ! row to stop looking
-      first_ncrit = nv_tot + 1
-      last_ncrit = first_ncrit + ncrit - 1
-      ! There are four scenarios for how the partially occupied bands can be
-      ! sitting within a row in the inclusion matrix:
-      do i = v_place, c_place 
-         ! row contains no crits
-         if (incl_array(i,2) .lt. first_ncrit &
-           .or. incl_array(i,1) .gt. last_ncrit) then
-           cycle
-         ! Row only contains crits:
-         else if (incl_array(i,2) .ge. last_ncrit &
-           .and. incl_array(i,1).le. first_ncrit) then
-           ncrit_incl = ncrit
-         else if (incl_array(i,1) .ge. first_ncrit &
-           .and. incl_array(i,2) .le. last_ncrit) then
-           ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
-           ! RHS situation [startband-not crit, endband-is crit]
-         else if (incl_array(i,1).le.first_ncrit &
-           .and. incl_array(i,2).le.last_ncrit) then
-           ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) & 
-             - vr_place + 1 
-           ! LHS situation [startband-is crit, endband-not crit]
-         else if (incl_array(i,1) .ge. first_ncrit &
-           .and. incl_array(i,2) .gt. last_ncrit) then
-           c_range = incl_array(i,2)-cr_place+1
-           ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
-         else
-           cycle
-         end if
-     end do
+      first_ncrit=nv_tot+1
+      end_ncrit = cr_place - 1
+      last_ncrit = first_ncrit+ncrit-1
+      if(first_ncrit.le.incl_array(1,1)) then
+        v_place = 1
+        vr_place= 1
+        start_ncrit=1 ! first row
+        do i=1,c_place
+          if (incl_array(i,2) .ge. last_ncrit &
+            .and. incl_array(i,1).le.first_ncrit) then
+            ncrit_incl = ncrit
+          else if (incl_array(i,1) .ge. first_ncrit &
+            .and. incl_array(i,2) .le. last_ncrit) then
+            ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+          else if (incl_array(i,1) .ge. first_ncrit &
+            .and. incl_array(i,2) .gt. last_ncrit .and. &
+           incl_array(i,1) .le.last_ncrit) then
+            c_range = incl_array(i,2)-cr_place+1
+            ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
+          else
+            cycle
+          end if
+      end do
+      else 
+        start_ncrit = vr_place ! row to start looking
+      !  end_ncrit = cr_place - 1 ! row to stop looking
+       ! first_ncrit = nv_tot + 1
+      !  last_ncrit = first_ncrit + ncrit - 1
+        ! There are four scenarios for how the partially occupied bands can be
+        ! sitting within a row in the inclusion matrix:
+        do i = v_place, c_place 
+           ! row contains no crits
+           if (incl_array(i,2) .lt. first_ncrit &
+             .or. incl_array(i,1) .gt. last_ncrit) then
+             cycle
+           ! Row only contains crits:
+           else if (incl_array(i,2) .ge. last_ncrit &
+             .and. incl_array(i,1).le. first_ncrit) then
+             ncrit_incl = ncrit
+           else if (incl_array(i,1) .ge. first_ncrit &
+             .and. incl_array(i,2) .le. last_ncrit) then
+             ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+             ! RHS situation [startband-not crit, endband-is crit]
+           else if (incl_array(i,1).le.first_ncrit &
+             .and. incl_array(i,2).le.last_ncrit) then
+             ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) & 
+               - vr_place + 1 
+             ! LHS situation [startband-is crit, endband-not crit]
+           else if (incl_array(i,1) .ge. first_ncrit &
+             .and. incl_array(i,2) .gt. last_ncrit) then
+             c_range = incl_array(i,2)-cr_place+1
+             ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
+           else
+             cycle
+           end if
+       end do
+     end if
     else
       ncrit_excl = 0
     end if
 
-    if (nv_incl .eq. 0) then
+    if (nv_incl .eq. 0.and.ncrit_incl.eq.0) then
       if (peinf%inode.eq.0) then
-        call die('no valence bands specified in band_ranges.', &
+        call die('no occupied bands specified in band_ranges.', &
           only_root_writes=.true.)
       end if
     end if
 
     if (nc_incl .eq. 0) then
       if (peinf%inode.eq.0) then
-        call die('no conduction bands specified in band_ranges.', &
+        call die('no unoccupied bands specified in band_ranges.', &
           only_root_writes=.true.)
       end if
     end if
@@ -1828,7 +1862,7 @@ contains
 
 !===============================================================================
 !
-! subroutine make_my_incl_array   By OAH             Last Modified 06/27/2019
+! subroutine make_my_incl_array   By OAH             Last Modified 08/14/2019
 !
 ! A subroutine for band-inclusion functionality
 !
@@ -1860,48 +1894,48 @@ contains
       my_incl_array=-1
     else
       allocate(my_incl_array(nownactual, ncols)) ! allocate worst case scenario
-    end if
-    my_incl_array = -1 ! -1 if row is extra
-    init = 0
-    next_band = incl_array(1,1)
-    i_ia = 1
-    irow = 2
-    do i = 1, size(do_i_own)
-      if (do_i_own(i)) then
-        if (init .eq. 0) then
-          ! if I am the first addition to my_incl_array, then just add me with
-          ! no further logic:
-          my_incl_array(1, 1) = next_band
-          my_incl_array(1, 2) = next_band
-          init = init + 1
-        else
-          ! Must include (owned) band i in my_incl_array, but have to figure out
-          ! if i needs its own row, or if it should be added to the end of the
-          ! current row. Grab the right-hand (end) value in the range for the current
-          ! row in my_incl_array and test if the next band is adjacent.
-          current_last_incl_band = my_incl_array(irow - 1, 2)
-          if ( next_band .eq. current_last_incl_band + 1 ) then
-            ! the next band is adjacent to the current, so increment the current
-            ! value 
-            my_incl_array(irow - 1, 2) = my_incl_array(irow - 1, 2) + 1
+      my_incl_array = -1 ! -1 if row is extra
+      init = 0
+      next_band = incl_array(1,1)
+      i_ia = 1
+      irow = 2
+      do i = 1, size(do_i_own)
+        if (do_i_own(i)) then
+          if (init .eq. 0) then
+            ! if I am the first addition to my_incl_array, then just add me with
+            ! no further logic:
+            my_incl_array(1, 1) = next_band
+            my_incl_array(1, 2) = next_band
+            init = init + 1
           else
-            ! if not adjacent to the current band, then the next band needs to
-            ! become the starting value of a new row in my_incl_array.
-            irow = irow + 1
-            my_incl_array(irow - 1, 1) = next_band
-            my_incl_array(irow - 1, 2) = next_band
-          end if
-        end if ! init .eq. 0
-      end if ! do_i_own(i)
-      if ( i .ne. size(do_i_own)) then
-        if (incl_array(i_ia, 2) .gt. next_band) then
-          next_band = next_band + 1
-        else
-          next_band = incl_array(i_ia + 1, 1)
-          i_ia = i_ia + 1
-        end if ! incl_array
-      end if ! i .ne. size(do_i_own)
-    end do ! end loop over do_i_own
+            ! Must include (owned) band i in my_incl_array, but have to figure out
+            ! if i needs its own row, or if it should be added to the end of the
+            ! current row. Grab the right-hand (end) value in the range for the current
+            ! row in my_incl_array and test if the next band is adjacent.
+            current_last_incl_band = my_incl_array(irow - 1, 2)
+            if ( next_band .eq. current_last_incl_band + 1 ) then
+              ! the next band is adjacent to the current, so increment the current
+              ! value 
+              my_incl_array(irow - 1, 2) = my_incl_array(irow - 1, 2) + 1
+            else
+              ! if not adjacent to the current band, then the next band needs to
+              ! become the starting value of a new row in my_incl_array.
+              irow = irow + 1
+              my_incl_array(irow - 1, 1) = next_band
+              my_incl_array(irow - 1, 2) = next_band
+            end if
+          end if ! init .eq. 0
+        end if ! do_i_own(i)
+        if ( i .ne. size(do_i_own)) then
+          if (incl_array(i_ia, 2) .gt. next_band) then
+            next_band = next_band + 1
+          else
+            next_band = incl_array(i_ia + 1, 1)
+            i_ia = i_ia + 1
+          end if ! incl_array
+        end if ! i .ne. size(do_i_own)
+      end do ! end loop over do_i_own
+    end if
 
   end subroutine make_my_incl_array
 
@@ -1940,8 +1974,6 @@ contains
     ngktot = SUM(kp%ngk)
 !    max_number_bands = &
 !    int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
-    max_number_bands=3
-
 
     incl_array = inc_array 
     incl_array2 = inc_array
@@ -2015,7 +2047,7 @@ contains
     end do
 
     do i=1,size(read_ranges_incl,1)
-      if (read_ranges_incl(i,1) .eq. (-1))then
+      if (read_ranges_incl(i,1) .eq. (-1).and.i.ne.1)then
         read_ranges_incl(i,3)=read_ranges_incl(i-1,3)
       end if
     end do
