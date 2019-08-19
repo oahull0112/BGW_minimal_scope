@@ -66,7 +66,7 @@ contains
     character :: fncor*32
     character :: tmpstr1*16,tmpstr2*16,tmpstr3*16,tmpstr*120
     integer :: ii,ig,jj,itran,ib
-    integer :: i_oh, j_oh, i
+!    integer :: i_oh, j_oh, i
     integer :: error
     integer :: nrq,nrqmax,iq,ic,npools,mypool,mypoolrank
     integer :: iv,nrkq,myipe,ipool
@@ -87,7 +87,7 @@ contains
 
     logical :: skip_checkbz
 
-    integer :: oh_i, oh_j
+!    integer :: oh_i, oh_j
     integer :: nprocs
     ! OAH: remove when done testing
 
@@ -242,71 +242,48 @@ contains
     call MPI_Bcast(pol%ncrit, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
 #endif
 !#BEGIN_INTERNAL_ONLY
+! OAH: this call determines how many of the conduction, valence, and partially
+! occupied bands are being included if the read ranges functionality is enabled.
+! It must be called before distribution() because the updated band number
+! values are what are used to ensure an even distribution of work to each MPI
+! task.
     if (cwfn%band_ranges) then
       call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
       pol%ncrit, cwfn%n_excl, vwfn%nv_excl, pol%ncrit_excl)
     end if
-   ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband, &
-   !   pol%ncrit, cwfn%n_excl, vwfn%nv_excl)
 !#END_INTERNAL_ONLY
     call distribution()
 
 !#BEGIN_INTERNAL_ONLY
-
-   ! call determine_n_incl(cwfn%incl_array, cwfn%nband, vwfn%nband+pol%ncrit, &
-   !   cwfn%nband - vwfn%nband, vwfn%nv_incl, cwfn%nc_incl, pol%ncrit_incl)
-    
-    call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, &
-        cwfn%nband-vwfn%nband, pol%ncrit, vwfn%incl_array_v, cwfn%incl_array_c)
-    call make_my_incl_array(vwfn%incl_array_v, peinf%doiownv, &
-         peinf%nvownactual, vwfn%my_incl_array_v)
-    call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
-         peinf%ncownactual, cwfn%my_incl_array_c)
-    call make_my_read_ranges(vwfn%my_incl_array_v, kp, vwfn%my_read_ranges_v)
-    call make_my_read_ranges(cwfn%my_incl_array_c, kp, cwfn%my_read_ranges_c)
-    if (peinf%inode==0) then
- !     write(*,*) "vwfn%nband: ", vwfn%nband
- !     write(*,*) "pol%ncrit: ", pol%ncrit
- !     write(*,*) "cwfn%nband: ", cwfn%nband
- !     write(*,*) "valence inclusion array:"
- !     do i_oh = 1, size(vwfn%incl_array_v, 1)
- !       write(*,*) (vwfn%incl_array_v(i_oh,j_oh), j_oh = 1, &
- !       size(vwfn%incl_array_v,2))
- !     end do
- !     write(*,*) "conduction inclusion array:"
- !     do i_oh = 1, size(cwfn%incl_array_c, 1)
- !       write(*,*) (cwfn%incl_array_c(i_oh,j_oh), j_oh = 1, &
- !       size(cwfn%incl_array_c,2))
- !     end do
- !     write(*,*) "my valence inclusion array:"
- !     do i_oh = 1, size(vwfn%my_incl_array_v, 1)
- !       write(*,*) (vwfn%my_incl_array_v(i_oh,j_oh), j_oh = 1, &
- !       size(vwfn%my_incl_array_v,2))
- !     end do
- !     write(*,*) "my valence read ranges array:"
- !     do i_oh = 1, size(vwfn%my_read_ranges_v, 1)
- !       write(*,*) (vwfn%my_read_ranges_v(i_oh,j_oh), j_oh = 1, &
- !       size(vwfn%my_read_ranges_v,2))
- !     end do
- !     write(*,*) "my conduction inclusion array:"
- !     do i_oh = 1, size(cwfn%my_incl_array_c, 1)
- !       write(*,*) (cwfn%my_incl_array_c(i_oh,j_oh), j_oh = 1, &
- !       size(cwfn%my_incl_array_c,2))
- !     end do
- !     write(*,*) "my conduction read ranges array:"
- !     do i_oh = 1, size(cwfn%my_read_ranges_c, 1)
- !       write(*,*) (cwfn%my_read_ranges_c(i_oh,j_oh), j_oh = 1, &
- !       size(cwfn%my_read_ranges_c,2))
- !     end do
-      write(6,'(/1x,a)') 'Calculation parameters, round two:'
-      write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
-      write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
-      write(6,'(1x,a,i0)') '- Number of fully occupied valence bands: ', vwfn%nband
-      write(6,'(1x,a,i0)') '- Number of partially occ. conduction bands: ', pol%ncrit
-      write(6,'(1x,a,3(1x,i0))') '- Monkhorst-Pack q-grid for epsilon(q):', pol%qgrid
-      write(6,*)
-    endif
-
+! OAH: the below block (if cwfn%band_ranges) is the main block for the read
+! ranges functionality. First, the inclusion array is split into valence
+! and conduction parts (first subroutine call), then an MPI task-specific
+! inclusion array is generated (2nd call for valence, 3rd call for conduction) for each MPI task, 
+! then MPI task-specific inclusion arrays that account for not reading in more
+! than .5 GB of data at once in read_hdf5_bands_block are created (see optional
+! argument incl_array section of read_hdf5_bands_block)
+! Finally, (not in this block) the "final" mpi task-specific inclusion arrays are passed as optional
+! arguments to read_hdf5_bands_block in the subroutine read_hdf5_wavefunctions
+   if (cwfn%band_ranges) then
+     call make_vc_incl_array(cwfn%incl_array, vwfn%nband+pol%ncrit, &
+         cwfn%nband-vwfn%nband, pol%ncrit, vwfn%incl_array_v, cwfn%incl_array_c)
+     call make_my_incl_array(vwfn%incl_array_v, peinf%doiownv, &
+          peinf%nvownactual, vwfn%my_incl_array_v)
+     call make_my_incl_array(cwfn%incl_array_c, peinf%doiownc, &
+          peinf%ncownactual, cwfn%my_incl_array_c)
+     call make_my_read_ranges(vwfn%my_incl_array_v, kp, vwfn%my_read_ranges_v)
+     call make_my_read_ranges(cwfn%my_incl_array_c, kp, cwfn%my_read_ranges_c)
+     if (peinf%inode==0) then
+       write(6,'(/1x,a)') 'Calculation parameters after accounting for &
+         included bands only:'
+       write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
+       write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
+       write(6,'(1x,a,i0)') '- Number of fully occupied valence bands: ', vwfn%nband
+       write(6,'(1x,a,i0)') '- Number of partially occ. conduction bands: ', pol%ncrit
+       write(6,'(1x,a,3(1x,i0))') '- Monkhorst-Pack q-grid for epsilon(q):', pol%qgrid
+       write(6,*)
+     endif
+  end if ! cwfn%band_ranges
 !#END_INTERNAL_ONLY
 
 !---------------------------------
@@ -685,9 +662,6 @@ contains
 ! If quasi-particle corrections were requested, read the corrected
 ! quasiparticle energies from file (in eV)
 
-! The below will need to be modified to reindex for the inclusion case...
-! It is checking the very last band, so need to reindex somehow to get the
-! proper last band
     if(peinf%inode == 0) then
       if(any(abs(kp%el(cwfn%nband+vwfn%ncore_excl+cwfn%n_excl-vwfn%ncore_excl, 1:kp%nrk, &
       1:kp%nspin) - kp%el(cwfn%nband+cwfn%n_excl-vwfn%ncore_excl+ 1 +vwfn%ncore_excl, &
@@ -705,9 +679,6 @@ contains
         endif
       endif
 
-      write(*,*) "pol%ncrit + pol%ncrit_excl: ", pol%ncrit+pol%ncrit_excl
-      write(*,*) "pol%ncrit_excl: ", pol%ncrit_excl
-      write(*,*) "pol%ncrit: ", pol%ncrit
       if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl-pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
         .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) + &
         pol%ncrit)) then
@@ -754,31 +725,6 @@ contains
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
         call read_hdf5_wavefunctions(kp, gvec, pol, cwfn, vwfn, intwfnv, intwfnc)
-!        if (peinf%inode.eq.0) then
-!          write(*,*) "information for mpi task: ", peinf%inode
-!          write(*,*) "do i own v:"
-!          write(*,*) peinf%doiownv
-!          write(*,*) "my valence inclusion array: "
-!          do i_oh = 1, size(vwfn%my_incl_array_v,1)
-!            write(*,*) (vwfn%my_incl_array_v(i_oh, j_oh), j_oh=1,2)
-!          end do
-!          write(*,*) "valence first band coefs:"
-!          do i_oh = 1, size(intwfnv%cg, 2)
-!            write(*,*) intwfnv%cg(1, i_oh, 1)
-!    !        write(*,*)intwfnv%cgk(1, i_oh, 1, 1)
-!          end do
-!          write(*,*) "do i own c:"
-!          write(*,*) peinf%doiownc
-!          write(*,*) "my conduction inclusion array: "
-!          do i_oh = 1, size(cwfn%my_incl_array_c,1)
-!            write(*,*) (cwfn%my_incl_array_c(i_oh, j_oh), j_oh=1,2)
-!          end do
-!          write(*,*) "conduction first band coefs:"
-!          do i_oh = 1, size(intwfnc%cg, 2)
-!            write(*,*) intwfnc%cg(1, i_oh, 1)
-!!            write(*,*) intwfnc%cgk(1, i_oh, 1, 1)
-!          end do
-!        end if
 #endif
 !#END_INTERNAL_ONLY
       else
@@ -1178,7 +1124,6 @@ contains
     integer :: error
     integer :: ngktot
     integer :: istart, ib_first
-    integer :: i_oh
 
     PUSH_SUB(read_hdf5_wavefunctions)
 
@@ -1237,13 +1182,10 @@ contains
     if (peinf%nvownactual>0) ib_first = peinf%invindexv(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%nvownactual))
 
-    ! OAH: need to change this call and the conduction call to
-    ! read_hdf5_bands_block so that it uses the updated method
-  !  call read_hdf5_bands_block(file_id, kp, vwfn%my_incl_array_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
-  !    peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
-
-    call read_hdf5_bands_block(file_id, kp, vwfn%my_read_ranges_v, vwfn%nband,peinf%nvownmax, peinf%nvownactual, &
-      peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
+    ! OAH: the last (optional) argument in read_hdf5_bands_block is for the
+    ! read_ranges functionality.
+    call read_hdf5_bands_block(file_id, kp, peinf%nvownmax, peinf%nvownactual, peinf%does_it_ownv, ib_first, wfns, &
+         ioffset=vwfn%ncore_excl, incl_array=vwfn%my_read_ranges_v)
 
 ! DVF : here we flip from hdf5 wfn ordering of indices to the `traditional` BGW ordering of indices, with
 ! respect to spin. The traditional BGW ordering should change soon to reflect the newer, better hdf5 setup
@@ -1283,8 +1225,8 @@ contains
     ib_first = 0
     if (peinf%ncownactual>0) ib_first = peinf%invindexc(1)
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%ncownactual))
-    call read_hdf5_bands_block(file_id, kp, cwfn%my_read_ranges_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
-      peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
+    call read_hdf5_bands_block(file_id, kp, peinf%ncownmax, peinf%ncownactual, peinf%does_it_ownc, ib_first, wfns, &
+         ioffset = vwfn%nband+vwfn%ncore_excl, incl_array=cwfn%my_read_ranges_c)
    ! call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
    !   peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
 
@@ -1635,7 +1577,7 @@ contains
     j = 0
     nrows = size(incl_array, 1)
 
-    ! First do while gets the index (j) of the row that contains both valence
+    ! OAH: First do while gets the index (j) of the row that contains both valence
     ! and conduction bands. The remaining logic splits the array accordingly.
     do while (vcount .lt. nvalence)
       j = j + 1
@@ -1646,18 +1588,18 @@ contains
       vcount = vcount - 1
       find_v = find_v - 1
     end do ! while
-    allocate(incl_array_v(j, 2))
+    SAFE_ALLOCATE(incl_array_v, (j,2))
     incl_array_v = incl_array(1:j, :)
     incl_array_v(j, 2) = find_v
 
-    ! Now doing the same for the conduction values.
-    ! Splitting up so that the valence matrix gets created and then the
+    ! OAH:  Now doing the same for the conduction values.
+    ! Note: splitting up so that the valence matrix gets created and then the
     ! conduciton matrix separately gets created ensures that the partially
     ! occupied bands are properly accounted for.
     ccount = 0
     j = size(incl_array, 1)
     k = 0
-    do while (ccount .lt. nconduction) ! maybe + ncrit, need to check
+    do while (ccount .lt. nconduction)
       ccount= ccount + incl_array(j,2) - incl_array(j,1) + 1
       j = j-1
       k = k + 1
@@ -1669,7 +1611,7 @@ contains
       ccount = ccount-1
     end do
 
-    allocate(incl_array_c(k, 2))
+    SAFE_ALLOCATE(incl_array_c, (k,2))
     incl_array_c = incl_array(j:, :)
     incl_array_c(1,1) = find_c
 
@@ -1723,7 +1665,11 @@ contains
     nv_tot_temp = nv_tot
     ncrit_temp = ncrit
   
+    ! Determine valence: (which row in incl_array contains the last valence
+    ! band, how far into that range the last valence band is, and the number
+    ! of included valence bands)
     do i = 1, n_incl_rows
+      ! All valence bands are included in a single inclusion row:
       if (incl_array(i,2) .le. last_v .and. incl_array(i,1) .le. last_v) then
         ! then add in the whole row range:
         nv_incl = nv_incl + incl_array(i,2) - incl_array(i,1) + 1
@@ -1743,12 +1689,10 @@ contains
       end if
       v_place = i
     end do
-
-    ! v_place is supposed to be the row number of the last v band
-    ! but there is no last v band, and this is causing problems...
   
+    ! Do the same as above, but for conduction bands:
     do i = 1, n_incl_rows
-      ir = n_incl_rows + 1 - i
+      ir = n_incl_rows + 1 - i ! ir for "i-reversed" -- index backwards
       if (incl_array(ir, 1) .ge. first_c .and. & 
         incl_array(ir, 2) .ge. first_c) then
         nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
@@ -1767,28 +1711,31 @@ contains
       else
         cycle
       end if
-      c_place = ir ! pretty sure we can move both c_place and v_place to outside
-      ! the whole thing because it just needs the last (i.e. after end do, c_place
-      ! = ir)
+      c_place = ir
     end do
     
-
+    ! Do the same as above, but for partially occupied bands:
     first_ncrit = nv_tot+1
     if (ncrit .ne. 0) then
       first_ncrit=nv_tot+1
       end_ncrit = cr_place - 1
       last_ncrit = first_ncrit+ncrit-1
+      ! There are no fully occupied bands included:
       if(first_ncrit.le.incl_array(1,1)) then
         v_place = 1
         vr_place= 1
         start_ncrit=1 ! first row
-        do i=1,c_place
+        do i=1,c_place ! only need to search through to the row where conduction
+         ! bands start
+          ! All partially occupied bands are included:
           if (incl_array(i,2) .ge. last_ncrit &
             .and. incl_array(i,1).le.first_ncrit) then
             ncrit_incl = ncrit
+          ! Row contains only partially occupied bands:
           else if (incl_array(i,1) .ge. first_ncrit &
             .and. incl_array(i,2) .le. last_ncrit) then
             ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+          ! LHS situation [ startband-crit, endband-not crit]
           else if (incl_array(i,1) .ge. first_ncrit &
             .and. incl_array(i,2) .gt. last_ncrit .and. &
            incl_array(i,1) .le.last_ncrit) then
@@ -1798,19 +1745,16 @@ contains
             cycle
           end if
       end do
+      ! There are some occupied bands included in addition to the included
+      ! partially occupied bands:
       else 
         start_ncrit = vr_place ! row to start looking
-      !  end_ncrit = cr_place - 1 ! row to stop looking
-       ! first_ncrit = nv_tot + 1
-      !  last_ncrit = first_ncrit + ncrit - 1
-        ! There are four scenarios for how the partially occupied bands can be
-        ! sitting within a row in the inclusion matrix:
         do i = v_place, c_place 
-           ! row contains no crits
+           ! row contains no partially occupied bands
            if (incl_array(i,2) .lt. first_ncrit &
              .or. incl_array(i,1) .gt. last_ncrit) then
              cycle
-           ! Row only contains crits:
+           ! Row only contains partially occupied bands:
            else if (incl_array(i,2) .ge. last_ncrit &
              .and. incl_array(i,1).le. first_ncrit) then
              ncrit_incl = ncrit
@@ -1890,10 +1834,10 @@ contains
     nrows = size(incl_array, 1)
     ncols = 2 ! fixed by definition of inclusion array
     if (nownactual.eq.0)then
-      allocate(my_incl_array(1, ncols))
+      SAFE_ALLOCATE(my_incl_array, (1, ncols))
       my_incl_array=-1
     else
-      allocate(my_incl_array(nownactual, ncols)) ! allocate worst case scenario
+      SAFE_ALLOCATE(my_incl_array,(nownactual, ncols)) ! allocate worst case scenario
       my_incl_array = -1 ! -1 if row is extra
       init = 0
       next_band = incl_array(1,1)
@@ -1949,7 +1893,8 @@ contains
 ! bands are read at once in Common/wfn_io_hdf5_inc
 ! 
 ! It adds a third column to the inclusion array that says which read number a 
-! particular range ofincluded bands belongs to.
+! particular range of included bands belongs to. It outputs the three-column
+! inclusion array as read_ranges_incl.
 !
 !===============================================================================
   subroutine make_my_read_ranges(inc_array, kp, read_ranges_incl)
@@ -1959,6 +1904,7 @@ contains
     integer, allocatable, intent(out) :: read_ranges_incl(:,:)
     integer, allocatable :: incl_array(:,:)
     integer, allocatable :: incl_array2(:,:)
+    integer :: inc_array_row, inc_array_col
     integer :: max_number_bands ! max bands to read in at once
     integer :: ngktot
     integer :: max_bytes_read = 536870912
@@ -1969,12 +1915,19 @@ contains
 
     nrows = size(inc_array, 1)
 
-    max_number_bands=3 ! remove when done testing
-
+    ! Note to self: This piece of code is somewhat problematic... If the max amount of
+    ! bytes read specified in read_hdf5_bands_block is changed, then this chunk
+    ! must also be changed...Makes an annoying/potentially bad dependency.
+    ! Perhaps should make max_bytes_read into something that this
+    ! subroutine can access directly?
     ngktot = SUM(kp%ngk)
-!    max_number_bands = &
-!    int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
+    max_number_bands = &
+    int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
 
+    inc_array_row = size(inc_array,1)
+    inc_array_col = size(inc_array,2)
+    SAFE_ALLOCATE(incl_array, (inc_array_row,inc_array_col))
+    SAFE_ALLOCATE(incl_array2, (inc_array_row,inc_array_col))
     incl_array = inc_array 
     incl_array2 = inc_array
     i=1 ! index of the inclusion array
@@ -1983,6 +1936,14 @@ contains
     nb_inchunk = max_number_bands
 
     ! This do while loop figures out how many rows the read_ranges matrix needs
+    ! This is different from the number of rows of the original inclusion array,
+    ! because could end up with "wrapping around" in the middle of a row,
+    ! causing it to split. E.g. say we can only read in 3 rows at once, and
+    ! say for example incl_array = [1 7]. Then
+    ! read_ranges_incl = [1 3 1
+    !                     4 6 2
+    !                     7 7 3] 
+    ! Where the third column says which "read" we're on in read_hdf5_bands_block
     do while (i .le. nrows)
       cbn=incl_array(i,2)-incl_array(i,1)+1
       if (cbn .lt. nb_inchunk) then
@@ -2001,8 +1962,7 @@ contains
         i=i+1
       end if
     end do
-
-    allocate(read_ranges_incl(j, 3))
+    SAFE_ALLOCATE(read_ranges_incl, (j,3))
 
     ! Now, it goes back through and fills in the values
     ! of the read_ranges array
@@ -2010,7 +1970,6 @@ contains
     j=1 ! index rows of read_ranges_incl
     k=1 ! index the third column of read_ranges_incl
     nb_inchunk = max_number_bands
-
     do while (i .le. nrows)
       cbn=incl_array2(i,2)-incl_array2(i,1)+1
       if (cbn .lt. nb_inchunk) then
@@ -2046,6 +2005,18 @@ contains
       end if
     end do
 
+    ! If there are extra -1 values at the bottom of the inclusion array (due to
+    ! pre-allocating the number of inclusion array rows to the worst case
+    ! scenario in the subroutine make_vc_incl_array, then we want these -1 rows
+    ! to still have a third column corresponding to the last read value. For
+    ! example, if incl_array = [ 1  3
+    !                           -1 -1]
+    ! and we can read in three bands at once (For example!), then we want the
+    ! read_ranges_incl array to look like: [1  3  1
+    !                                      -1 -1 1]
+    ! so that the last column of the -1 row matches the last read value.
+    ! This is used for searching purposes in the optional argument section of
+    ! read_hdf5_bands_block.
     do i=1,size(read_ranges_incl,1)
       if (read_ranges_incl(i,1) .eq. (-1).and.i.ne.1)then
         read_ranges_incl(i,3)=read_ranges_incl(i-1,3)

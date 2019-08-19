@@ -513,6 +513,7 @@ subroutine inread(pol,vwfn,cwfn)
 !#BEGIN_INTERNAL_ONLY
 ! OAH: set the inclusion array
 ! default is [1 n], n the total number of bands
+if (cwfn%band_ranges) then
   SAFE_ALLOCATE(cwfn%incl_array, (nband_ranges, 2))
   cwfn%incl_array(:,1) = incl_start(1:nband_ranges)
   cwfn%incl_array(:,2) = incl_end(1:nband_ranges)
@@ -522,9 +523,10 @@ subroutine inread(pol,vwfn,cwfn)
       write(*,*) (cwfn%incl_array(i,j), j = 1,2)
     end do
   end if
-  if (cwfn%band_ranges .and. .not. pol%os_hdf5) then
+  if (.not. pol%os_hdf5) then
     call die('The band ranges feature must be used with hdf5 enabled',only_root_writes =.true.)
   end if
+end if
 !#END_INTERNAL_ONLY
 
   if ((pol%freq_dep .eq. 2) .and. abs(pol%dDeltaFreq) .gt. TOL_Zero) then
