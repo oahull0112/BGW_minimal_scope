@@ -447,17 +447,17 @@ end subroutine LONGNAME(_band)
 ! end read/write wfn data
 
 #ifdef TEMP_OTHER
-subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbownactual, does_it_ownb, ib_first, wfnsout, ioffset)
+subroutine read_hdf5_bands_block(file_id, kp, nbownmax, nbownactual, does_it_ownb, ib_first, wfnsout, ioffset, & 
+    incl_array)
   integer(HID_T), intent(in) :: file_id
   type(kpoints), intent(in) :: kp
-  integer, intent(in) :: incl_array(:,:)
-  integer, intent(in) :: n_incl
   integer, intent(in) :: nbownmax
   integer, intent(in) :: nbownactual !< how many bands I own
   logical, intent(in) :: does_it_ownb(:,:)
   integer, intent(in) :: ib_first !< first band of the set of bands I own
   SCALAR, intent(out) :: wfnsout(:,:,:) !< (SUM(kp%ngk), kp%nspin*kp%nspinor, nbownactual)
   integer, optional, intent(in) :: ioffset
+  integer, optional, intent(in) :: incl_array(:,:)
 
   real(DP), allocatable :: wfndata(:,:,:,:)
   integer(HID_T) :: plist_id
@@ -483,6 +483,12 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   integer(HSIZE_T) :: count_out(4), offset_out(4)
   integer :: i
   integer :: incl_array_nrows
+  integer, allocatable :: k_count(:)
+  integer, allocatable :: nrow_chunk(:)
+  integer :: current_range, ik, end_k, current_k, ir, nrows
+  integer :: max_end_k
+  logical :: first_read
+  integer :: nband, ibb
 
   PUSH_SUB(read_hdf5_bands_block)
 
@@ -499,7 +505,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   call h5dopen_f(file_id, 'wfns/coeffs', dset_id, error)
   call h5dget_space_f(dset_id, dataspace, error)
 
-  incl_array_nrows = size(incl_array,1)
 
   ! find lowest rank PE that owns the first band of this group of bands
   reader = -1
@@ -541,13 +546,6 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
   ! single band, including G-vectors from all k-points.
   max_bands_read = min(nbownmax, &
     int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)))
-  if (peinf%inode.eq.0) then
-    write(*,*) "size of single band:"
-    write(*,*) int(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0)
-    write(*,*) "max number of bands to read in: "
-    write(*,*) int(max_bytes_read/(SCALARSIZE*kp%nspin*kp%nspinor*dble(ngktot)*8d0))
-  end if
-  ! max_bands_read = 2 ! OAH this is just for testing. Remove when done
   if (max_bands_read==0) then
     max_bands_read = 1
     if (peinf%inode==0) then
@@ -559,11 +557,118 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
       write(0,*)
     endif
   endif
-  !write(6,*) 'max_bands_read', max_bands_read
   SAFE_ALLOCATE(wfndata, (SCALARSIZE, ngktot, kp%nspin*kp%nspinor, max_bands_read))
 
-  !FIXME: OAH: inclusion functionality works as long as the bands read in don't
-  !exceed the max number of bands to read in.
+  ! OAH: if the inclusion/read_ranges functionality is enabled, then need to
+  ! take unions of hdf5 hyperslabs to read in (The unions of the included
+  ! bands). Also need to keep track of the number of bands allowed per read. To
+  ! do this, the inclusion array here includes three columns. The first column
+  ! is the starting band of an included range. The second column is the ending band of an
+  ! included range. The third column is which read number the range belongs to.
+  ! The creation of this inclusion matrix (my_read_ranges) is handled in
+  ! Epsilon/input.f90 subroutines.
+ if(present(incl_array))then
+   incl_array_nrows = size(incl_array,1)
+   ! Q: does this need an if/else, or can it just be an if?
+   ! Also, there is a repeating bit of code about the comm style below the main
+   ! body of the read in. Would it be better to force comm_style=0 for the
+   ! band_ranges functionality? 
+!#BEGIN_INTERNAL_ONLY
+   do_read=nbownactual.ne.0
+   first_read=.true.
+   nrows=size(incl_array,1)
+   current_k=incl_array(1,3)
+   end_k=incl_array(nrows,3)
+   max_end_k=(nbownmax/max_bands_read)+1
+   SAFE_ALLOCATE(k_count, (end_k))
+   SAFE_ALLOCATE(nrow_chunk, (end_k))
+   nrow_chunk=0
+   k_count=0
+   do ir=1,nrows ! of the inclusion array
+     current_range=incl_array(ir,2)-incl_array(ir,1)+1
+     current_k=incl_array(ir,3)
+     if(incl_array(ir,1).ne.(-1)) then
+       k_count(current_k)=k_count(current_k) +current_range
+       nrow_chunk(current_k)=nrow_chunk(current_k)+1 ! number of inclusion array
+       ! rows in the current k chunk
+     end if
+   end do
+   ir=0
+   ib=1
+   ibb=1
+   current_k=incl_array(1,3)
+   do ik=1,max_end_k
+     ! This block is for each read
+     do_read=nbownactual.ne.0.and.(ik.le.end_k)
+     if(do_read) then
+       nband=k_count(ik) ! the number of bands in the read
+       count(1) = SCALARSIZE
+       count(2) = ngktot
+       count(3) = kp%nspin*kp%nspinor
+       count(4) = nband 
+       call h5screate_simple_f(4, count, memspace, error)
+       ! now we have the memspace to place our hyperslabs
+       offset(1)=0
+       offset(2)=0
+       offset(3)=0
+       ! This block is for each band in a given read:
+       do i=1,nrow_chunk(ik)
+         if (first_read.and.incl_array(ib,1).ne.(-1)) then
+           first_read=.false.
+           offset(4)=incl_array(ib,1)-1
+           count(4)=incl_array(ib,2)-incl_array(ib,1)+1
+           call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F,&
+             offset, count, error)
+           count_out = count
+           offset_out=0
+           call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, &
+             offset_out, count_out, error)
+           offset_out(4)=count_out(4)
+           ib=ib+1
+         else if (.not.first_read.and.incl_array(ib,1).ne.(-1))then
+           offset(4)=incl_array(ib,1)-1
+           count(4)=incl_array(ib,2)-incl_array(ib,1)+1
+           call h5sselect_hyperslab_f(dataspace,H5S_SELECT_OR_F,offset,count,error)
+           count_out(4)=incl_array(ib,2)-incl_array(ib,1)+1
+           call h5sselect_hyperslab_f(memspace,H5S_SELECT_OR_F,offset_out,count_out,error)
+           offset_out(4)=offset_out(4)+count_out(4)
+           ib=ib+1
+         else
+           ib = ib +1
+         end if
+       end do ! i=1,nrows
+     else ! if do read
+       offset(:)=0
+       count(:)=0
+       call h5screate_simple_f(4, count, memspace, error)
+       call h5sselect_hyperslab_f(dataspace,H5S_SELECT_SET_F,offset,count,error)
+       call h5sselect_hyperslab_f(memspace,H5S_SELECT_SET_F,offset,count,error)
+     end if
+     call h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error)
+     call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
+     call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:),count,error,&
+       memspace, dataspace, xfer_prp=plist_id)
+     call h5pclose_f(plist_id, error)
+     ! And now reset first_read and go do the next read:
+     first_read=.true.
+
+     if(do_read) then
+       do is = 1, kp%nspin*kp%nspinor
+         wfnsout(:,is,ibb:ibb+nband-1) = &
+           SCALARIFY2(wfndata(1,:,is,1:nband),wfndata(2,:,is,1:nband))
+       enddo
+     end if
+     ibb=ibb+nband
+     end do ! ik=1,end_k
+
+#ifdef MPI
+   if (comm_style==1.and.nbownactual>0) then
+     call MPI_Comm_free(bandcomm, mpierr)
+     call MPI_Group_free(mpigrp, mpierr)
+   endif
+#endif
+!#END_INTERNAL_ONLY
+else ! regular no incl_array code:
   ib = 1
   do while (ib<=nbownmax)
     bands_read = max(min(nbownactual, ib-1 + max_bands_read) - ib + 1, 0)
@@ -575,91 +680,42 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
     call h5screate_simple_f(4, count, memspace, error)
     do_read = bands_read>0.and.(peinf%inode==reader.or.comm_style==0)
 
-      if (do_read) then
-        offset(1) = 0
-        offset(2) = 0
-        offset(3) = 0
-!        offset(4) = (ib_first-1)+ioffset_+(ib-1)
-        offset(4) = incl_array(1,1) - 1
-        count(4) = incl_array(1,2) - incl_array(1,1) + 1
-        if (peinf%verb_debug .and. peinf%inode==reader) then
-          write(6,'(4(a,i0,1x))') 'ib=',ib,'bands_read=',bands_read,'offset=',offset(3),'ib_first=',ib_first
-        endif
-      else
-        offset(:) = 0
-        call H5sselect_none_f(memspace,error)
-      endif
-  
-      call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F, offset, count, error)
-      if (.not.do_read) then
-        call H5sselect_none_f(dataspace,error)
-      endif
-
-    !  do i = 2, incl_array_nrows
-    !    if(incl_array(i,1).ne. -1) then
-    !      offset(4) = incl_array(i, 1) - 1
-    !      count(4) = incl_array(i,2) - incl_array(i,1) +1
-    !      call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
-    !        count, error)
-    !    end if
-    !  end do
-
-    !  offset_out(4) = count_out(4)
-    !  do i = 2,incl_array_nrows
-    !    if(incl_array(i,1).ne.-1) then
-    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
-    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out,&
-    !        count_out, error)
-    !    end if
-    !  end do
-
-      count_out = count
-      offset_out=0
-      count_out(4) = incl_array(1,2) - incl_array(1,1) + 1
-      call h5sselect_hyperslab_f(memspace, H5S_SELECT_SET_F, offset_out, &
-        count_out, error)
-      offset_out(4) = count_out(4)
-      do i = 2, incl_array_nrows ! remember to declare this
-        if(incl_array(i,1).ne. -1) then
-          offset(4) = incl_array(i,1) - 1
-          count(4) = incl_array(i,2) - incl_array(i,1) + 1
-          call h5sselect_hyperslab_f(dataspace, H5S_SELECT_OR_F, offset, &
-            count, error)
-          count_out(4) = incl_array(i, 2) - incl_array(i, 1) + 1
-          call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
-            count_out, error)
-          offset_out(4) = offset_out(4) + count_out(4)
-        end if
-      end do
-
-    !  offset_out(4) = count_out(4)
-    !  do i=2,incl_array_nrows
-    !    if(incl_array(i,1).ne. -1) then
-    !      count_out(4) = incl_array(i,2)-incl_array(i,1)+1
-    !      call h5sselect_hyperslab_f(memspace, H5S_SELECT_OR_F, offset_out, &
-    !        count_out, error)
-    !      offset_out(4) = offset_out(4) + count_out(4)
-    !    end if
-    !  end do
-  
+    if (do_read) then
+      offset(1) = 0
+      offset(2) = 0
+      offset(3) = 0
+      offset(4) = (ib_first-1)+ioffset_+(ib-1)
       if (peinf%verb_debug .and. peinf%inode==reader) then
-        write(6,'(a,i0,a)') 'ib=',ib,' before read!'
-        !call procmem(mem,nmpinode)
-        !write(6,'(a,f0.3,a)') 'Memory available: ', mem/(1024d0**2),' MB per MPI rank.'
+        write(6,'(4(a,i0,1x))') 'ib=',ib,'bands_read=',bands_read,'offset=',offset(3),'ib_first=',ib_first
       endif
+    else
+      offset(:) = 0
+      call H5sselect_none_f(memspace,error)
+    endif
+
+    call h5sselect_hyperslab_f(dataspace, H5S_SELECT_SET_F, offset, count, error)
+    if (.not.do_read) then
+      call H5sselect_none_f(dataspace,error)
+    endif
+
+    if (peinf%verb_debug .and. peinf%inode==reader) then
+      write(6,'(a,i0,a)') 'ib=',ib,' before read!'
+      !call procmem(mem,nmpinode)
+      !write(6,'(a,f0.3,a)') 'Memory available: ', mem/(1024d0**2),' MB per MPI rank.'
+    endif
 
 #ifdef MPI
-      !if (peinf%inode==reader) write(6,'(a)') '[1]'
-      call h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error)
-      !if (peinf%inode==reader) write(6,'(a)') '[2]'
-      call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
-      !if (peinf%inode==reader) write(6,'(a)') '[3]'
-      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace, xfer_prp=plist_id)
-      !if (peinf%inode==reader) write(6,'(a)') '[4]'
-      call h5pclose_f(plist_id, error)
-      !if (peinf%inode==reader) write(6,'(a)') '[5]'
+    !if (peinf%inode==reader) write(6,'(a)') '[1]'
+    call h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error)
+    !if (peinf%inode==reader) write(6,'(a)') '[2]'
+    call h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
+    !if (peinf%inode==reader) write(6,'(a)') '[3]'
+    call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace, xfer_prp=plist_id)
+    !if (peinf%inode==reader) write(6,'(a)') '[4]'
+    call h5pclose_f(plist_id, error)
+    !if (peinf%inode==reader) write(6,'(a)') '[5]'
 #else
-      call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace)
+    call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, wfndata(:,:,:,:), count, error, memspace, dataspace)
 #endif
 
     if (peinf%verb_debug .and. peinf%inode==reader) then
@@ -707,13 +763,7 @@ subroutine read_hdf5_bands_block(file_id, kp, incl_array, n_incl, nbownmax, nbow
 #endif
     ib = ib + bands_read_max
   enddo
-
-#ifdef MPI
-  if (comm_style==1.and.nbownactual>0) then
-    call MPI_Comm_free(bandcomm, mpierr)
-    call MPI_Group_free(mpigrp, mpierr)
-  endif
-#endif
+end if ! if incl_array present
 
   SAFE_DEALLOCATE(ranks)
   SAFE_DEALLOCATE(wfndata)

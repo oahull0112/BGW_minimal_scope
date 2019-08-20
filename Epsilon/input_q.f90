@@ -116,14 +116,6 @@ subroutine input_q(gvec,kpq,cwfn,vwfn,pol,intwfnvq)
 !#BEGIN_INTERNAL_ONLY
 #ifdef HDF5
       call read_hdf5_wavefunctions(kpq, gvec, pol, cwfn, vwfn, intwfnvq)
-      if (peinf%inode.eq.0) then
-        write(*,*) "information for mpi_task: ", peinf%inode
-        write(*,*) "q-valence first band coefs:"
-        do i_oh = 1, size(intwfnvq%cg, 2)
-          write(*,*) intwfnvq%cg(1, i_oh, 1)
-        end do
-      end if
-
 #endif
 !#END_INTERNAL_ONLY
     else
@@ -207,8 +199,8 @@ subroutine read_hdf5_wavefunctions(kpq, gvec, pol, cwfn, vwfn, intwfnvq)
   ib_first = 0
   if (peinf%nvownactual>0) ib_first = peinf%invindexv(1)
   SAFE_ALLOCATE(wfns, (ngktot,kpq%nspin*kpq%nspinor,peinf%nvownactual))
-  call read_hdf5_bands_block(file_id, kpq,vwfn%my_incl_array_v, vwfn%nband, peinf%nvownmax, peinf%nvownactual, &
-    peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl)
+  call read_hdf5_bands_block(file_id, kpq, peinf%nvownmax, peinf%nvownactual, &
+    peinf%does_it_ownv, ib_first, wfns, ioffset=vwfn%ncore_excl, incl_array=vwfn%my_incl_array_v)
 
 ! DVF : here we flip from hdf5 wfn ordering of indices to the `traditional` BGW ordering of indices, with
 ! respect to spin. The traditional BGW ordering should change soon to reflect the newer, better hdf5 setup
