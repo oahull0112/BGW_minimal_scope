@@ -66,7 +66,6 @@ contains
     character :: fncor*32
     character :: tmpstr1*16,tmpstr2*16,tmpstr3*16,tmpstr*120
     integer :: ii,ig,jj,itran,ib
-!    integer :: i_oh, j_oh, i
     integer :: error
     integer :: nrq,nrqmax,iq,ic,npools,mypool,mypoolrank
     integer :: iv,nrkq,myipe,ipool
@@ -87,13 +86,7 @@ contains
 
     logical :: skip_checkbz
 
-!    integer :: oh_i, oh_j
-    integer :: nprocs
-    ! OAH: remove when done testing
-
     PUSH_SUB(input)
-
-    call MPI_COMM_SIZE(MPI_COMM_WORLD, nprocs, error)
 
 !-------------------------------
 ! SIB: Read the input file
@@ -274,8 +267,7 @@ contains
      call make_my_read_ranges(vwfn%my_incl_array_v, kp, vwfn%my_read_ranges_v)
      call make_my_read_ranges(cwfn%my_incl_array_c, kp, cwfn%my_read_ranges_c)
      if (peinf%inode==0) then
-       write(6,'(/1x,a)') 'Calculation parameters after accounting for &
-         included bands only:'
+       write(6,'(/1x,a)') 'Calculation parameters after accounting for included bands only:'
        write(6,'(1x,a,f0.2)') '- Cutoff of the dielectric matrix (Ry): ', pol%ecuts
        write(6,'(1x,a,i0)') '- Total number of bands in the calculation: ', cwfn%nband
        write(6,'(1x,a,i0)') '- Number of fully occupied valence bands: ', vwfn%nband
@@ -663,8 +655,11 @@ contains
 ! quasiparticle energies from file (in eV)
 
     if(peinf%inode == 0) then
-      if(any(abs(kp%el(cwfn%nband+vwfn%ncore_excl+cwfn%n_excl-vwfn%ncore_excl, 1:kp%nrk, &
-      1:kp%nspin) - kp%el(cwfn%nband+cwfn%n_excl-vwfn%ncore_excl+ 1 +vwfn%ncore_excl, &
+      ! OAH: the following if-statement assumes that vwfn%ncore_excl = 0 if 
+      ! cwfn%n_excl != 0 and vice-versa. (And in the next check that vwfn%nv_excl != 0)
+      ! In the general case, all three (ncore_excl, n_excl, nv_excl) are 0.
+      if(any(abs(kp%el(cwfn%nband+vwfn%ncore_excl+cwfn%n_excl, 1:kp%nrk, &
+      1:kp%nspin) - kp%el(cwfn%nband+cwfn%n_excl+ 1 +vwfn%ncore_excl, &
       1:kp%nrk, 1:kp%nspin)) .lt. TOL_Degeneracy)) then
         if(pol%degeneracy_check_override) then
           write(0,'(a)') &
@@ -679,8 +674,8 @@ contains
         endif
       endif
 
-      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl-pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) &
-        .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+pol%ncrit_excl+(vwfn%nv_excl-vwfn%ncore_excl) + &
+      if(any (kp%ifmax(:,:) < vwfn%nband+vwfn%ncore_excl-pol%ncrit_excl+vwfn%nv_excl &
+        .or. kp%ifmax(:,:) > vwfn%nband+vwfn%ncore_excl+pol%ncrit_excl+vwfn%nv_excl + &
         pol%ncrit)) then
         write(0,'(a,i6,a,i6,a)') 'epsilon.inp says there are ', vwfn%nband, ' fully occupied bands and ', &
           pol%ncrit, ' partially occupied.'
@@ -1227,8 +1222,6 @@ contains
     SAFE_ALLOCATE(wfns, (ngktot,kp%nspin*kp%nspinor,peinf%ncownactual))
     call read_hdf5_bands_block(file_id, kp, peinf%ncownmax, peinf%ncownactual, peinf%does_it_ownc, ib_first, wfns, &
          ioffset = vwfn%nband+vwfn%ncore_excl, incl_array=cwfn%my_read_ranges_c)
-   ! call read_hdf5_bands_block(file_id, kp, cwfn%my_incl_array_c, cwfn%nband-vwfn%nband, peinf%ncownmax, peinf%ncownactual, &
-   !   peinf%does_it_ownc, ib_first, wfns, ioffset = vwfn%nband+vwfn%ncore_excl)
 
     call logit('Checking norms')
     ! write to conduction file
@@ -1378,10 +1371,7 @@ contains
 ! ncore_excl > nv, we would store no wavefunctions at all.
 
         ib2=ib-vwfn%ncore_excl
-! OAH: try this...
-!       ib2=ib-cwfn%n_excl
        if(ib2.le. vwfn%nband) then
-
 ! Write to valence file
 
           if (peinf%doiownv(ib2)) then
@@ -1568,52 +1558,56 @@ contains
     integer, allocatable, intent(out) :: incl_array_c(:,:)
 
     integer :: vcount
-    integer :: i, j, k
+    integer :: jj, kk
     integer :: nrows ! total number of rows in incl_array
     integer :: find_v
     integer :: find_c, ccount
+
+    PUSH_SUB(input.make_vc_incl_array)
     
     vcount = 0
-    j = 0
+    jj = 0
     nrows = size(incl_array, 1)
 
     ! OAH: First do while gets the index (j) of the row that contains both valence
     ! and conduction bands. The remaining logic splits the array accordingly.
     do while (vcount .lt. nvalence)
-      j = j + 1
-      vcount = vcount + incl_array(j,2) - incl_array(j, 1) + 1
+      jj = jj + 1
+      vcount = vcount + incl_array(jj,2) - incl_array(jj, 1) + 1
     end do ! while
-    find_v = incl_array(j, 2)
+    find_v = incl_array(jj, 2)
     do while (vcount .ne. nvalence)
       vcount = vcount - 1
       find_v = find_v - 1
     end do ! while
-    SAFE_ALLOCATE(incl_array_v, (j,2))
-    incl_array_v = incl_array(1:j, :)
-    incl_array_v(j, 2) = find_v
+    SAFE_ALLOCATE(incl_array_v, (jj,2))
+    incl_array_v = incl_array(1:jj, :)
+    incl_array_v(jj, 2) = find_v
 
     ! OAH:  Now doing the same for the conduction values.
     ! Note: splitting up so that the valence matrix gets created and then the
     ! conduciton matrix separately gets created ensures that the partially
     ! occupied bands are properly accounted for.
     ccount = 0
-    j = size(incl_array, 1)
-    k = 0
+    jj = size(incl_array, 1)
+    kk = 0
     do while (ccount .lt. nconduction)
-      ccount= ccount + incl_array(j,2) - incl_array(j,1) + 1
-      j = j-1
-      k = k + 1
+      ccount= ccount + incl_array(jj,2) - incl_array(jj,1) + 1
+      jj = jj-1
+      kk = kk + 1
     end do
-    j = j + 1
-    find_c = incl_array(j,1)
+    jj = jj + 1
+    find_c = incl_array(jj,1)
     do while (ccount.ne.nconduction)
       find_c = find_c + 1
       ccount = ccount-1
     end do
 
-    SAFE_ALLOCATE(incl_array_c, (k,2))
-    incl_array_c = incl_array(j:, :)
+    SAFE_ALLOCATE(incl_array_c, (kk,2))
+    incl_array_c = incl_array(jj:, :)
     incl_array_c(1,1) = find_c
+
+    POP_SUB(input.make_vc_incl_array)
 
   end subroutine make_vc_incl_array
 
@@ -1638,7 +1632,7 @@ contains
     integer, intent(out) :: nv_excl ! number of excluded valence bands
     integer, intent(out) :: ncrit_excl ! number of excluded partially occupieds
   
-    integer :: i, ir
+    integer :: ii, ir
     integer :: last_v, first_c, search_v, search_c
     integer :: n_incl_rows
     integer :: c_range
@@ -1647,8 +1641,10 @@ contains
     integer :: v_place, c_place ! the row number of the last v (c) band
     integer :: vr_place, cr_place ! place inside of row range
     integer :: start_ncrit, end_ncrit, last_ncrit, first_ncrit
-    integer :: search_ncrit_above, search_ncrit_below
+   ! integer :: search_ncrit_above, search_ncrit_below
     integer :: ntot_temp, nv_tot_temp, ncrit_temp
+
+    PUSH_SUB(input.determine_n_incl)
 
     n_incl_rows = size(incl_array, 1)
     last_v = nv_tot
@@ -1668,16 +1664,16 @@ contains
     ! Determine valence: (which row in incl_array contains the last valence
     ! band, how far into that range the last valence band is, and the number
     ! of included valence bands)
-    do i = 1, n_incl_rows
+    do ii = 1, n_incl_rows
       ! All valence bands are included in a single inclusion row:
-      if (incl_array(i,2) .le. last_v .and. incl_array(i,1) .le. last_v) then
+      if (incl_array(ii,2) .le. last_v .and. incl_array(ii,1) .le. last_v) then
         ! then add in the whole row range:
-        nv_incl = nv_incl + incl_array(i,2) - incl_array(i,1) + 1
-        search_v = incl_array(i,2)
-        vr_place = incl_array(i,2) - incl_array(i,1) + 1       
+        nv_incl = nv_incl + incl_array(ii,2) - incl_array(ii,1) + 1
+        search_v = incl_array(ii,2)
+        vr_place = incl_array(ii,2) - incl_array(ii,1) + 1       
         ! The last v is somewhere in the middle of a row range:
-      else if (incl_array(i,2) .ge. last_v .and. incl_array(i,1) .le. last_v) then
-        search_v = incl_array(i,1)
+      else if (incl_array(ii,2) .ge. last_v .and. incl_array(ii,1) .le. last_v) then
+        search_v = incl_array(ii,1)
         do while (search_v .le. last_v)
           nv_incl = nv_incl + 1
           search_v = search_v + 1
@@ -1687,12 +1683,12 @@ contains
       else
         cycle
       end if
-      v_place = i
+      v_place = ii
     end do
   
     ! Do the same as above, but for conduction bands:
-    do i = 1, n_incl_rows
-      ir = n_incl_rows + 1 - i ! ir for "i-reversed" -- index backwards
+    do ii = 1, n_incl_rows
+      ir = n_incl_rows + 1 - ii ! ir for "i-reversed" -- index backwards
       if (incl_array(ir, 1) .ge. first_c .and. & 
         incl_array(ir, 2) .ge. first_c) then
         nc_incl = nc_incl + incl_array(ir, 2) - incl_array(ir, 1) + 1
@@ -1717,30 +1713,30 @@ contains
     ! Do the same as above, but for partially occupied bands:
     first_ncrit = nv_tot+1
     if (ncrit .ne. 0) then
-      first_ncrit=nv_tot+1
+      first_ncrit = nv_tot+1
       end_ncrit = cr_place - 1
       last_ncrit = first_ncrit+ncrit-1
       ! There are no fully occupied bands included:
       if(first_ncrit.le.incl_array(1,1)) then
         v_place = 1
-        vr_place= 1
-        start_ncrit=1 ! first row
-        do i=1,c_place ! only need to search through to the row where conduction
+        vr_place = 1
+        start_ncrit = 1 ! first row
+        do ii = 1,c_place ! only need to search through to the row where conduction
          ! bands start
           ! All partially occupied bands are included:
-          if (incl_array(i,2) .ge. last_ncrit &
-            .and. incl_array(i,1).le.first_ncrit) then
+          if (incl_array(ii,2) .ge. last_ncrit &
+            .and. incl_array(ii,1) .le. first_ncrit) then
             ncrit_incl = ncrit
           ! Row contains only partially occupied bands:
-          else if (incl_array(i,1) .ge. first_ncrit &
-            .and. incl_array(i,2) .le. last_ncrit) then
-            ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+          else if (incl_array(ii,1) .ge. first_ncrit &
+            .and. incl_array(ii,2) .le. last_ncrit) then
+            ncrit_incl = ncrit_incl + incl_array(ii,2) - incl_array(ii,1) + 1
           ! LHS situation [ startband-crit, endband-not crit]
-          else if (incl_array(i,1) .ge. first_ncrit &
-            .and. incl_array(i,2) .gt. last_ncrit .and. &
-           incl_array(i,1) .le.last_ncrit) then
-            c_range = incl_array(i,2)-cr_place+1
-            ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
+          else if (incl_array(ii,1) .ge. first_ncrit &
+            .and. incl_array(ii,2) .gt. last_ncrit .and. &
+           incl_array(ii,1) .le. last_ncrit) then
+            c_range = incl_array(ii,2) - cr_place+1
+            ncrit_incl = ncrit_incl + (incl_array(ii,2) - incl_array(ii,1)+1) - c_range
           else
             cycle
           end if
@@ -1749,28 +1745,28 @@ contains
       ! partially occupied bands:
       else 
         start_ncrit = vr_place ! row to start looking
-        do i = v_place, c_place 
+        do ii = v_place, c_place 
            ! row contains no partially occupied bands
-           if (incl_array(i,2) .lt. first_ncrit &
-             .or. incl_array(i,1) .gt. last_ncrit) then
+           if (incl_array(ii,2) .lt. first_ncrit &
+             .or. incl_array(ii,1) .gt. last_ncrit) then
              cycle
            ! Row only contains partially occupied bands:
-           else if (incl_array(i,2) .ge. last_ncrit &
-             .and. incl_array(i,1).le. first_ncrit) then
+           else if (incl_array(ii,2) .ge. last_ncrit &
+             .and. incl_array(ii,1).le. first_ncrit) then
              ncrit_incl = ncrit
-           else if (incl_array(i,1) .ge. first_ncrit &
-             .and. incl_array(i,2) .le. last_ncrit) then
-             ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) + 1
+           else if (incl_array(ii,1) .ge. first_ncrit &
+             .and. incl_array(ii,2) .le. last_ncrit) then
+             ncrit_incl = ncrit_incl + incl_array(ii,2) - incl_array(ii,1) + 1
              ! RHS situation [startband-not crit, endband-is crit]
-           else if (incl_array(i,1).le.first_ncrit &
-             .and. incl_array(i,2).le.last_ncrit) then
-             ncrit_incl = ncrit_incl + incl_array(i,2) - incl_array(i,1) & 
+           else if (incl_array(ii,1) .le. first_ncrit &
+             .and. incl_array(ii,2) .le. last_ncrit) then
+             ncrit_incl = ncrit_incl + incl_array(ii,2) - incl_array(ii,1) & 
                - vr_place + 1 
              ! LHS situation [startband-is crit, endband-not crit]
-           else if (incl_array(i,1) .ge. first_ncrit &
-             .and. incl_array(i,2) .gt. last_ncrit) then
-             c_range = incl_array(i,2)-cr_place+1
-             ncrit_incl = ncrit_incl+(incl_array(i,2) -incl_array(i,1)+1)-c_range
+           else if (incl_array(ii,1) .ge. first_ncrit &
+             .and. incl_array(ii,2) .gt. last_ncrit) then
+             c_range = incl_array(ii,2) - cr_place+1
+             ncrit_incl = ncrit_incl + (incl_array(ii,2) - incl_array(ii,1)+1)-c_range
            else
              cycle
            end if
@@ -1780,7 +1776,7 @@ contains
       ncrit_excl = 0
     end if
 
-    if (nv_incl .eq. 0.and.ncrit_incl.eq.0) then
+    if (nv_incl.eq.0 .and. ncrit_incl.eq.0) then
       if (peinf%inode.eq.0) then
         call die('no occupied bands specified in band_ranges.', &
           only_root_writes=.true.)
@@ -1801,6 +1797,8 @@ contains
     n_excl = ntot_temp - ntot
     nv_excl = nv_tot_temp - nv_incl
     ncrit_excl = ncrit_temp - ncrit_incl
+
+    POP_SUB(input.determine_n_incl)
 
   end subroutine determine_n_incl
 
@@ -1828,8 +1826,10 @@ contains
     integer :: irow ! row indexer of my_incl_array
     integer :: next_band
     integer :: i_ia ! "(i)ndex of (i)nclusion (a)rray"
-    integer :: i, j, k
+    integer :: ii
     integer :: init = 0 ! for first case
+
+    PUSH_SUB(input.make_my_incl_array)
 
     nrows = size(incl_array, 1)
     ncols = 2 ! fixed by definition of inclusion array
@@ -1843,8 +1843,8 @@ contains
       next_band = incl_array(1,1)
       i_ia = 1
       irow = 2
-      do i = 1, size(do_i_own)
-        if (do_i_own(i)) then
+      do ii = 1, size(do_i_own)
+        if (do_i_own(ii)) then
           if (init .eq. 0) then
             ! if I am the first addition to my_incl_array, then just add me with
             ! no further logic:
@@ -1870,7 +1870,7 @@ contains
             end if
           end if ! init .eq. 0
         end if ! do_i_own(i)
-        if ( i .ne. size(do_i_own)) then
+        if ( ii .ne. size(do_i_own)) then
           if (incl_array(i_ia, 2) .gt. next_band) then
             next_band = next_band + 1
           else
@@ -1880,6 +1880,8 @@ contains
         end if ! i .ne. size(do_i_own)
       end do ! end loop over do_i_own
     end if
+
+    POP_SUB(input.make_my_incl_array)
 
   end subroutine make_my_incl_array
 
@@ -1910,8 +1912,10 @@ contains
     integer :: max_bytes_read = 536870912
 
     integer :: cbn ! current band number
-    integer :: i, j, k, nrows
+    integer :: ii, jj, kk, nrows
     integer :: nb_inchunk ! the current number of bands remaining in a read
+
+    PUSH_SUB(input.make_my_read_ranges)
 
     nrows = size(inc_array, 1)
 
@@ -1930,9 +1934,9 @@ contains
     SAFE_ALLOCATE(incl_array2, (inc_array_row,inc_array_col))
     incl_array = inc_array 
     incl_array2 = inc_array
-    i=1 ! index of the inclusion array
-    j=0 ! index rows of read_ranges_incl
-    k=0 ! index the third column of read_ranges_incl
+    ii = 1 ! index of the inclusion array
+    jj = 0 ! index rows of read_ranges_incl
+    kk = 0 ! index the third column of read_ranges_incl
     nb_inchunk = max_number_bands
 
     ! This do while loop figures out how many rows the read_ranges matrix needs
@@ -1943,65 +1947,65 @@ contains
     ! read_ranges_incl = [1 3 1
     !                     4 6 2
     !                     7 7 3] 
-    ! Where the third column says which "read" we're on in read_hdf5_bands_block
-    do while (i .le. nrows)
-      cbn=incl_array(i,2)-incl_array(i,1)+1
+    ! Where the third column says which "read" we are on in read_hdf5_bands_block
+    do while (ii .le. nrows)
+      cbn=incl_array(ii,2)-incl_array(ii,1)+1
       if (cbn .lt. nb_inchunk) then
         nb_inchunk=nb_inchunk-cbn
-        i=i+1
-        j=j+1
+        ii = ii+1
+        jj = jj+1
       else if (cbn .gt. nb_inchunk) then
-        j=j+1
-        k=k+1
-        incl_array(i,1)=incl_array(i,1)+nb_inchunk
-        nb_inchunk=max_number_bands
+        jj = jj+1
+        kk = kk+1
+        incl_array(ii,1) = incl_array(ii,1)+nb_inchunk
+        nb_inchunk = max_number_bands
       else ! cbn .eq. nb_inchunk
-        j=j+1
+        jj = jj+1
         nb_inchunk=max_number_bands
-        k=k+1
-        i=i+1
+        kk = kk+1
+        ii = ii+1
       end if
     end do
-    SAFE_ALLOCATE(read_ranges_incl, (j,3))
+    SAFE_ALLOCATE(read_ranges_incl, (jj,3))
 
     ! Now, it goes back through and fills in the values
     ! of the read_ranges array
-    i=1 ! index of the inclusion array
-    j=1 ! index rows of read_ranges_incl
-    k=1 ! index the third column of read_ranges_incl
+    ii = 1 ! index of the inclusion array
+    jj = 1 ! index rows of read_ranges_incl
+    kk = 1 ! index the third column of read_ranges_incl
     nb_inchunk = max_number_bands
-    do while (i .le. nrows)
-      cbn=incl_array2(i,2)-incl_array2(i,1)+1
+    do while (ii .le. nrows)
+      cbn=incl_array2(ii,2)-incl_array2(ii,1)+1
       if (cbn .lt. nb_inchunk) then
         ! then copy the current row over
         ! and move to the next row (i)
-        read_ranges_incl(j,1)=incl_array2(i,1)
-        read_ranges_incl(j,2)=incl_array2(i,2)
-        read_ranges_incl(j,3)=k
+        read_ranges_incl(jj,1) = incl_array2(ii,1)
+        read_ranges_incl(jj,2) = incl_array2(ii,2)
+        read_ranges_incl(jj,3) = kk
         nb_inchunk = nb_inchunk-cbn
-        i=i+1
-        j=j+1
+        ii = ii+1
+        jj = jj+1
       else if (cbn .gt. nb_inchunk) then
         ! then copy the current row over
         ! and do not increment the inclusion array
         ! but do increment read_ranges_incl
-        read_ranges_incl(j,1)=incl_array2(i,1)
-        read_ranges_incl(j,2)=incl_array2(i,1)+nb_inchunk-1
-        read_ranges_incl(j,3)=k
-        j=j+1
-        k=k+1
-        incl_array2(i,1)=incl_array2(i,1)+nb_inchunk
-        nb_inchunk=max_number_bands
+        read_ranges_incl(jj,1) = incl_array2(ii,1)
+        read_ranges_incl(jj,2) = incl_array2(ii,1)+nb_inchunk-1
+        read_ranges_incl(jj,3) = kk
+        jj = jj+1
+        kk = kk+1
+        incl_array2(ii,1) = incl_array2(ii,1)+nb_inchunk
+        nb_inchunk = max_number_bands
       else ! cbn .eq. nb_inchunk
         ! just copy over the row and reset nb_inchunk
         ! and move to the next row
-        read_ranges_incl(j,1)=incl_array2(i,1)
-        read_ranges_incl(j,2)=incl_array2(i,2)
-        read_ranges_incl(j,3)=k
-        j=j+1
-        nb_inchunk=max_number_bands
-        k=k+1
-        i=i+1
+        read_ranges_incl(jj,1) = incl_array2(ii,1)
+        read_ranges_incl(jj,2) = incl_array2(ii,2)
+        read_ranges_incl(jj,3) = kk
+        jj = jj+1
+        nb_inchunk = max_number_bands
+        kk = kk+1
+        ii = ii+1
       end if
     end do
 
@@ -2017,11 +2021,14 @@ contains
     ! so that the last column of the -1 row matches the last read value.
     ! This is used for searching purposes in the optional argument section of
     ! read_hdf5_bands_block.
-    do i=1,size(read_ranges_incl,1)
-      if (read_ranges_incl(i,1) .eq. (-1).and.i.ne.1)then
-        read_ranges_incl(i,3)=read_ranges_incl(i-1,3)
+    do ii = 1, size(read_ranges_incl,1)
+      if (read_ranges_incl(ii,1) .eq. (-1).and.ii.ne.1)then
+        read_ranges_incl(ii,3) = read_ranges_incl(ii-1,3)
       end if
     end do
+
+    POP_SUB(input.make_my_read_ranges)
+
   end subroutine make_my_read_ranges
 
 end module input_m
